@@ -1,0 +1,309 @@
+"net" get peer name：192.168.3.237
+cmdSendTask
+cmdRecvTask
+-----------get 0x9275----------
+9275 Input JSON string: {"DataType":14,"Function":4}
+Name: enp2s0
+MAC: 68:ed:a6:12:c5:8e
+IP: 192.168.3.15
+-------------------
+Name: enp4s0
+MAC: 68:ed:a6:12:c5:8f
+IP:
+-------------------
+Name: enp5s0
+MAC: 68:ed:a6:12:c5:90
+IP:
+-------------------
+Name: ip6tnl0
+MAC: 00:00:00:00:00:00
+IP:
+-------------------
+Name: lo
+MAC: 00:00:00:00:00:00
+IP: 127.0.0.1
+-------------------
+Name: pnio1
+MAC: 68:ed:a6:12:c5:8f
+IP: 192.168.2.14
+-------------------
+Name: sit0
+MAC: 00:00:00:00:00:00
+IP:
+-------------------
+9271 Send JSON string: {"DataType":14,"IP":["192.168.3.15","192.168.2.14"],"Mac":["68:ed:a6:12:c5:8e","68:ed:a6:12:c5:8f"],"PortName":["enp2s0","pnio1"]}
+
+sem_post(semCmdLink) End!
+socket is break!
+[2026-06-03 11:24:19 304697] [                         :                          ] [---W---] [thread 14370] IO映射循环执行时间较长: 47.04ms
+Directory already exists: ./defaultfunction/remoteIO
+netLink is unlink!
+connectionInitTask
+[2026-06-03 11:24:21 353042] [                         :                          ] [---W---] [thread 14370] IO映射循环执行时间较长: 46.89ms
+[2026-06-03 11:24:23 401545] [                         :                          ] [---W---] [thread 14370] IO映射循环执行时间较长: 47.02ms
+[2026-06-03 11:24:25 450230] [                         :                          ] [---W---] [thread 14370] IO映射循环执行时间较长: 47.17ms
+[2026-06-03 11:24:27 498959] [                         :                          ] [---W---] [thread 14370] IO映射循环执行时间较长: 47.22ms
+[2026-06-03 11:24:29 547576] [                         :                          ] [---W---] [thread 14370] IO映射循环执行时间较长: 47.12ms
+[2026-06-03 11:24:31 596308] [                         :                          ] [---W---] [thread 14370] IO映射循环执行时间较长: 47.21ms
+--------------- nrc2.out is running-------2--------
+"net" get peer name：192.168.3.237
+cmdSendTask
+cmdRecvTask
+-----------get 0x9275----------
+9275 Input JSON string: {"DataType":14,"Function":1,"Portname":"pnio1"}
+Name: enp2s0
+MAC: 68:ed:a6:12:c5:8e
+IP: 192.168.3.15
+-------------------
+Name: enp4s0
+MAC: 68:ed:a6:12:c5:8f
+IP:
+-------------------
+Name: enp5s0
+MAC: 68:ed:a6:12:c5:90
+IP:
+-------------------
+Name: ip6tnl0
+MAC: 00:00:00:00:00:00
+IP:
+-------------------
+Name: lo
+MAC: 00:00:00:00:00:00
+IP: 127.0.0.1
+-------------------
+Name: pnio1
+MAC: 68:ed:a6:12:c5:8f
+IP: 192.168.2.14
+-------------------
+Name: sit0
+MAC: 00:00:00:00:00:00
+IP:
+-------------------
+目标MAC地址68:ed:a6:12:c5:8f
+68:ed:a6:12:c5:8f
+Sent 1e bytes
+socket is break!
+sem_post(semCmdLink) End!
+DCP Identify Request:
+  Service ID: 5
+  Service Type: 1
+  XID: 0x1d2d995c
+  Response Delay: 0
+  DCP Data Length: 80
+Created PNDCPFrame object.
+Data blocks start at: 0x7fdc1a6276da, remaining bytes: 80
+Remaining bytes: 80
+Block length: 4, block size: 8
+Created DataBlock with length: 4
+DataBlock content (hex): 02 05 00 04 00 00 02 07
+Added DataBlock to frame.data_blocks. Current size: 1
+Moved block_ptr to: 0x7fdc1a6276e2, remaining bytes: 72
+Remaining bytes: 72
+Block length: 11, block size: 15
+Created DataBlock with length: 11
+DataBlock content (hex): 02 01 00 0b 00 00 53 4d 43 20 45 58 32 34 35
+Added DataBlock to frame.data_blocks. Current size: 2
+Moved block_ptr to: 0x7fdc1a6276f1, remaining bytes: 57
+Remaining bytes: 57
+Skipping zero byte. New block_ptr: 0x7fdc1a6276f2, remaining bytes: 56
+Block length: 7, block size: 11
+Created DataBlock with length: 7
+DataBlock content (hex): 02 02 00 07 00 00 65 78 32 34 35
+Added DataBlock to frame.data_blocks. Current size: 3
+Moved block_ptr to: 0x7fdc1a6276fd, remaining bytes: 45
+Remaining bytes: 45
+Skipping zero byte. New block_ptr: 0x7fdc1a6276fe, remaining bytes: 44
+Block length: 6, block size: 10
+Created DataBlock with length: 6
+DataBlock content (hex): 02 03 00 06 00 00 00 83 00 11
+Added DataBlock to frame.data_blocks. Current size: 4
+Moved block_ptr to: 0x7fdc1a627708, remaining bytes: 34
+Remaining bytes: 34
+Block length: 4, block size: 8
+Created DataBlock with length: 4
+DataBlock content (hex): 02 04 00 04 00 00 01 00
+Added DataBlock to frame.data_blocks. Current size: 5
+Moved block_ptr to: 0x7fdc1a627710, remaining bytes: 26
+Remaining bytes: 26
+Block length: 4, block size: 8
+Created DataBlock with length: 4
+DataBlock content (hex): 02 07 00 04 00 00 00 01
+Added DataBlock to frame.data_blocks. Current size: 6
+Moved block_ptr to: 0x7fdc1a627718, remaining bytes: 18
+Remaining bytes: 18
+Block length: 14, block size: 18
+Created DataBlock with length: 14
+DataBlock content (hex): 01 02 00 0e 00 01 c0 a8 02 11 ff ff ff 00 c0 a8
+02 11
+Added DataBlock to frame.data_blocks. Current size: 7
+Moved block_ptr to: 0x7fdc1a62772a, remaining bytes: 0
+Filtered PN-DCP frame added to the list. filtered_frames size: 1
+Processed frame successfully.
+DCP Identify Request:
+  Service ID: 5
+  Service Type: 1
+  XID: 0x1d2d995c
+  Response Delay: 0
+  DCP Data Length: 92
+Created PNDCPFrame object.
+Data blocks start at: 0x7fdc1a6276da, remaining bytes: 92
+Remaining bytes: 92
+Block length: 6, block size: 10
+Created DataBlock with length: 6
+DataBlock content (hex): 02 05 00 06 00 00 02 07 03 ff
+Added DataBlock to frame.data_blocks. Current size: 1
+Moved block_ptr to: 0x7fdc1a6276e4, remaining bytes: 82
+Remaining bytes: 82
+Block length: 17, block size: 21
+Created DataBlock with length: 17
+DataBlock content (hex): 02 01 00 11 00 00 53 43 41 4c 41 4e 43 45 20 58
+43 2d 32 30 30
+Added DataBlock to frame.data_blocks. Current size: 2
+Moved block_ptr to: 0x7fdc1a6276f9, remaining bytes: 61
+Remaining bytes: 61
+Skipping zero byte. New block_ptr: 0x7fdc1a6276fa, remaining bytes: 60
+Block length: 11, block size: 15
+Created DataBlock with length: 11
+DataBlock content (hex): 02 02 00 0b 00 00 75 6e 73 65 74 75 75 79 79
+Added DataBlock to frame.data_blocks. Current size: 3
+Moved block_ptr to: 0x7fdc1a627709, remaining bytes: 45
+Remaining bytes: 45
+Skipping zero byte. New block_ptr: 0x7fdc1a62770a, remaining bytes: 44
+Block length: 6, block size: 10
+Created DataBlock with length: 6
+DataBlock content (hex): 02 03 00 06 00 00 00 2a 0a 0b
+Added DataBlock to frame.data_blocks. Current size: 4
+Moved block_ptr to: 0x7fdc1a627714, remaining bytes: 34
+Remaining bytes: 34
+Block length: 4, block size: 8
+Created DataBlock with length: 4
+DataBlock content (hex): 02 04 00 04 00 00 01 00
+Added DataBlock to frame.data_blocks. Current size: 5
+Moved block_ptr to: 0x7fdc1a62771c, remaining bytes: 26
+Remaining bytes: 26
+Block length: 4, block size: 8
+Created DataBlock with length: 4
+DataBlock content (hex): 02 07 00 04 00 00 00 01
+Added DataBlock to frame.data_blocks. Current size: 6
+Moved block_ptr to: 0x7fdc1a627724, remaining bytes: 18
+Remaining bytes: 18
+Block length: 14, block size: 18
+Created DataBlock with length: 14
+DataBlock content (hex): 01 02 00 0e 00 01 c0 a8 02 25 ff ff ff 00 c0 a8
+02 25
+Added DataBlock to frame.data_blocks. Current size: 7
+Moved block_ptr to: 0x7fdc1a627736, remaining bytes: 0
+Filtered PN-DCP frame added to the list. filtered_frames size: 2
+Processed frame successfully.
+Directory already exists: ./defaultfunction/remoteIO
+netLink is unlink!
+DCP Identify Request:
+  Service ID: 5
+  Service Type: 1
+  XID: 0x1d2d995c
+  Response Delay: 0
+  DCP Data Length: 102
+Created PNDCPFrame object.
+Data blocks start at: 0x7fdc1a6276da, remaining bytes: 102
+Remaining bytes: 102
+Block length: 24, block size: 28
+Created DataBlock with length: 24
+DataBlock content (hex): 02 05 00 18 00 00 01 01 01 02 02 01 02 02 02 03
+02 04 02 05 03 3d 05 01 05 02 05 04
+Added DataBlock to frame.data_blocks. Current size: 1
+Moved block_ptr to: 0x7fdc1a6276f6, remaining bytes: 74
+Remaining bytes: 74
+Block length: 12, block size: 16
+Created DataBlock with length: 12
+DataBlock content (hex): 02 01 00 0c 00 00 53 49 4d 41 54 49 43 2d 50 43
+Added DataBlock to frame.data_blocks. Current size: 2
+Moved block_ptr to: 0x7fdc1a627706, remaining bytes: 58
+Remaining bytes: 58
+Block length: 17, block size: 21
+Created DataBlock with length: 17
+DataBlock content (hex): 02 02 00 11 00 00 64 65 73 6b 74 6f 70 2d 70 37
+6f 6a 74 6e 69
+Added DataBlock to frame.data_blocks. Current size: 3
+Moved block_ptr to: 0x7fdc1a62771b, remaining bytes: 37
+Remaining bytes: 37
+Skipping zero byte. New block_ptr: 0x7fdc1a62771c, remaining bytes: 36
+Block length: 6, block size: 10
+Created DataBlock with length: 6
+DataBlock content (hex): 02 03 00 06 00 00 00 2a 02 02
+Added DataBlock to frame.data_blocks. Current size: 4
+Moved block_ptr to: 0x7fdc1a627726, remaining bytes: 26
+Remaining bytes: 26
+Block length: 4, block size: 8
+Created DataBlock with length: 4
+DataBlock content (hex): 02 04 00 04 00 00 00 00
+Added DataBlock to frame.data_blocks. Current size: 5
+Moved block_ptr to: 0x7fdc1a62772e, remaining bytes: 18
+Remaining bytes: 18
+Block length: 14, block size: 18
+Created DataBlock with length: 14
+DataBlock content (hex): 01 02 00 0e 00 01 c0 a8 01 ed ff ff ff 00 00 00
+00 00
+Added DataBlock to frame.data_blocks. Current size: 6
+Moved block_ptr to: 0x7fdc1a627740, remaining bytes: 0
+Filtered PN-DCP frame added to the list. filtered_frames size: 3
+Processed frame successfully.
+[2026-06-03 11:24:33 645040] [                         :                          ] [---W---] [thread 14370] IO映射循环执行时间较长: 47.23ms
+Stopping receive thread.
+该数据块不是需要处理的类型,Option :2,Suboption :5
+Manufacturer: SMC EX245
+转换前的设备名称为：ex245
+数据数组的内容: 65
+crc16check:2bc0
+提取的CRC16校验码: 78 32 34 35
+计算的CRC16校验码: 32 62 63 30
+CRC16校验失败，设备名称可能不需要转换。
+DeviceName: ex245
+VendorID: "0x0083"
+
+DeviceID: "0x0011"
+
+设备角色: PN设备
+IP地址：192.168.2.17
+子网掩码：255.255.255.0
+网关地址：192.168.2.17
+
+该数据块不是需要处理的类型,Option :2,Suboption :5
+Manufacturer: SCALANCE XC-200
+转换前的设备名称为：unsetuuyy
+数据数组的内容: 75 6e 73 65 74
+crc16check:8f4b
+提取的CRC16校验码: 75 75 79 79
+计算的CRC16校验码: 38 66 34 62
+CRC16校验失败，设备名称可能不需要转换。
+DeviceName: unsetuuyy
+VendorID: "0x002a"
+
+DeviceID: "0x0a0b"
+
+设备角色: PN设备
+IP地址：192.168.2.37
+子网掩码：255.255.255.0
+网关地址：192.168.2.37
+
+该数据块不是需要处理的类型,Option :2,Suboption :5
+Manufacturer: SIMATIC-PC
+转换前的设备名称为：desktop-p7ojtni
+数据数组的内容: 64 65 73 6b 74 6f 70 2d 70 37 6f
+crc16check:eec
+提取的CRC16校验码: 6a 74 6e 69
+计算的CRC16校验码: 30 65 65 63
+CRC16校验失败，设备名称可能不需要转换。
+DeviceName: desktop-p7ojtni
+VendorID: "0x002a"
+
+DeviceID: "0x0202"
+
+设备角色未被定义role = 0
+设备角色:
+IP地址：192.168.1.237
+子网掩码：255.255.255.0
+网关地址：0.0.0.0
+
+9271 Send JSON string: {"DataType":14,"Devices":[{"DeviceID":"0x0011","DeviceName":"ex245","DeviceRole":"PN设备","DeviceVendorValue":"SMC EX245","GateWay":"192.168.2.17","IPAddress":"192.168.2.17","Mac":"00:23:c6:37:75:8d","SubNetMask":"255.255.255.0","VendorID":"0x0083"},{"DeviceID":"0x0a0b","DeviceName":"unsetuuyy","DeviceRole":"PN设备","DeviceVendorValue":"SCALANCE XC-200","GateWay":"192.168.2.37","IPAddress":"192.168.2.37","Mac":"20:87:56:de:4f:38","SubNetMask":"255.255.255.0","VendorID":"0x002a"},{"DeviceID":"0x0202","DeviceName":"desktop-p7ojtni","DeviceRole":null,"DeviceVendorValue":"SIMATIC-PC","GateWay":"0.0.0.0","IPAddress":"192.168.1.237","Mac":"6c:0b:5e:f6:6a:5f","SubNetMask":"255.255.255.0","VendorID":"0x002a"}]}
+
+connectionInitTask

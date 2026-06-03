@@ -1,0 +1,16 @@
+# Binary
+inl.exe
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test run outputs (auto-generated timestamped files not needed in repo)
+*_response_*.json
+*.log
+gsd_out*.json
+topo_out.json
