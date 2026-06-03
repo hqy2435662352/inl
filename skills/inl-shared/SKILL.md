@@ -103,16 +103,46 @@ DryRunFrame JSON 示例:
 
 | 流 | 内容 |
 |---|------|
-| **stdout** | 数据 / 命令结果(prettified JSON) / DryRunFrame |
+| **stdout** | `{ok, data, _notice}` Envelope 格式 / DryRunFrame |
 | **stderr** | 进度 emoji(`🔌` / `📤` / `📥` / `💾` / `⚠️ ` / `🛑`)/ 警告 / 结构化错误 |
 
 ```bash
 inl --target 192.168.3.15 gsd list > out.json 2> progress.log
-# out.json:     仅 prettified JSON
+# out.json:     Envelope 包裹的 JSON
 # progress.log: 进度 emoji 行
 ```
 
-**AI 解析规则**:从 **stdout** 拿数据,从 **stderr** 拿结构化错误(用 `code` 字段判别)。
+**AI 解析规则**:
+- 从 **stdout** 拿 Envelope,先判 `ok` 字段再消费 `data` 字段
+- 从 **stderr** 拿结构化错误(用 `code` 字段判别)
+
+### stdout Envelope
+
+所有命令的 stdout 输出包裹在统一 JSON 信封中:
+
+```json
+{
+  "ok": true,
+  "identity": "inl",
+  "data": { "DataType": 13, "Device": [ ... ] },
+  "_notice": {
+    "command": "gsd-list",
+    "data_type": 13,
+    "elapsed_ms": 234
+  }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `ok` | bool | `true` = 成功 |
+| `identity` | string | 固定为 `"inl"` |
+| `data` | object | 命令的原始响应 JSON(工业 PC 返回内容,无字段重排/精度丢失) |
+| `_notice` | object | 诊断信息:`command` / `data_type` / `elapsed_ms`(DCP 写操作额外含 `dcp_write: true` / `verify_with`) |
+
+**AI 判断成功**: `if response.ok { process(response.data) }`
+
+**DCP 写操作特例**(`device setup-name` / `device setup-ip`): 工业 PC 端无 JSON 响应,Envelope 形如 `{"ok": true, "data": null, "_notice": {"dcp_write": true, "verify_with": "topology-scan", ...}}`,AI 应在收到 Envelope 后立即跑 `topology scan` 闭环验证。
 
 ---
 

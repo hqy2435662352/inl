@@ -25,8 +25,8 @@ aliases: [inl-field-verification]
 | 命令 | 状态 | 偏差数 | 修正 commit |
 |------|------|--------|------------|
 | `inl gsd list` | ✅ 已核对 | 0 | - |
-| `inl device list` | ⚠️ 已知偏差，待后续 PR | 3 | - |
-| `inl device list-active` | ⚠️ 已知偏差，待后续 PR | 4 | - |
+| `inl device list` | ✅ 已核对 (2026-06-02 P0 修复) | 0 | `topology.CallbackJsonResponse` + `PNDriverConfig` |
+| `inl device list-active` | ✅ 已核对 (2026-06-02 P0 修复) | 0 | 确认 `topology.ActivatedTopologyResponse` 模型与实机一致 |
 | `inl device run` | ✅ 已核对 | 0 | - |
 | `inl device gsd-config` | ⚠️ 已知偏差，待后续 PR | 1 | - |
 | `inl device gsd-active` | ⚠️ 已知偏差，待后续 PR | 1 (协议错误) | - |
@@ -38,8 +38,8 @@ aliases: [inl-field-verification]
 | 命令 | 是否需要大小写兼容 | 是否需要单复数兼容 | 决策 |
 |------|-------------------|-------------------|------|
 | `inl gsd list` | 否 (JSON tag 已匹配) | 否 (`Device[]` 已验证) | ✅ 无需兼容层 |
-| `inl device list` | 否 | **是** — 实机无 `Stations[]`/`Devices[]`，而是 `IDevice`+`PNDriver` 顶层字段 | ⚠️ 模型完全错误，需重写 |
-| `inl device list-active` | 否 | **是** — 实机用 `DecentralDevice` 非 `Devices`/`Stations` | ⚠️ 需兼容 `DecentralDevice` |
+| `inl device list` | 否 | **已建模** — 顶层 `IDevice`+`PNDriver` 对象(非数组), 含 `Error[]`+`ErrorID[]` 空数组 | ✅ 已建模 `CallbackJsonResponse` (6 字段) + `PNDriverConfig` (5 字段, 含 `iDevice`) |
+| `inl device list-active` | 否 | **已建模** — `DecentralDevice[]` 数组(单数, 命名约定) | ✅ 已建模 `ActivatedTopologyResponse` + `DecentralDevice` + `Module` + `SubModule` 完整层级 |
 | `inl device run` | 否 | 否 (`Devices[]` 已验证) | ✅ 无需兼容层 |
 | `inl device gsd-config` | 否 | 否 (`GSDFile` 已验证) | ✅ 无需兼容层 |
 | `inl device gsd-active` | N/A (不支持) | N/A | ⚠️ 需确认工业 PC 版本后重新评估 |
@@ -87,7 +87,9 @@ aliases: [inl-field-verification]
 
 ### 核对记录
 
-> ⚠️ **已知偏差，待后续 PR** — 2026-06-01，工业 PC 192.168.3.15:6000
+> ✅ **已核对** — 2026-06-02，工业 PC 192.168.2.14:6000
+> 
+> P0 修复记录：2026-06-01 首次核对发现 3 个偏差（Function 类型 / 内容结构 / DataType 数值），标记为"待 PR"；2026-06-02 P0 修复同步更新，详见 `docs/inl/inl-p0-fix-plan.md` 修复项 1。
 
 **v1 假设**（基于 C++ 源码 + topology 预估）：
 
@@ -151,9 +153,33 @@ aliases: [inl-field-verification]
 
 4. **`topology/types.go` 中的 `CallbackJsonResponse` 模型完全错误** — 需整个重写为 `IDevice` + `PNDriver` 结构。
 
+**v3 模型修正**（2026-06-02 P0 修复，inl PR）：
+
+```go
+// topology/types.go
+type CallbackJsonResponse struct {
+    DataType int            `json:"DataType"`
+    Function string         `json:"Function"`     // 字符串, 不是 object
+    Error    []interface{}  `json:"Error"`        // v1 未建模
+    ErrorID  []interface{}  `json:"ErrorID"`      // v1 未建模
+    IDevice  IDeviceInfo    `json:"IDevice"`      // v1 未建模
+    PNDriver PNDriverConfig `json:"PNDriver"`     // v1 未建模
+}
+
+type PNDriverConfig struct {
+    DeviceName      string `json:"DeviceName"`
+    IPAddress       string `json:"IPAddress"`
+    SetInTheProject bool   `json:"SetInTheProject"`
+    SubnetMask      string `json:"SubnetMask"`
+    IDevice         bool   `json:"iDevice,omitempty"`  // 区分 iDevice 模式
+}
+```
+
+✅ **修正完成**：`topology/types.go` 新增 `CallbackJsonResponse` (6 字段) + `PNDriverConfig` (5 字段, 含 `iDevice`)，并新增 `TestCallbackJsonResponseRoundTrip` + `TestCallbackJsonResponseHasIDeviceField` 用实机 JSON 作 fixture 验证。
+
 ### 字段名拼写兼容性
 
-⚠️ **已知偏差** — `Stations` / `Devices` 字段不存在于实机响应中。实机响应字段为 `IDevice` / `PNDriver`。`Function` 是字符串不是对象，与请求体的 `Function` 结构不对称。`topology/types.go` 中的 `CallbackJsonResponse` 需完全重写。
+✅ **已验证通过** — `IDevice` / `PNDriver` 顶层字段，`Error[]` / `ErrorID[]` 空数组，`Function` 是字符串（与请求体 `Function.Value` 对象不对称，这是工业 PC 实机行为）。`Stations` / `Devices` 字段在空配置中不存在；当配置有设备时会出现 `DecentralDevice[]`（Go json.Unmarshal 对未知字段宽容, 不会报错）。
 
 ---
 
@@ -161,7 +187,9 @@ aliases: [inl-field-verification]
 
 ### 核对记录
 
-> ⚠️ **已知偏差，待后续 PR** — 2026-06-01，工业 PC 192.168.3.15:6000
+> ✅ **已核对** — 2026-06-02，工业 PC 192.168.3.15:6000
+> 
+> P0 修复记录：2026-06-01 首次核对发现 `DecentralDevice`/`Module`/`SubModule` 三层嵌套结构，标记为"待 PR"；2026-06-02 P0 修复同步更新，确认 `topology.ActivatedTopologyResponse` 模型已与实机响应一致（v1 已正确建模），仅补充"✅ 已通过实机验证"注释。详见 `docs/inl/inl-p0-fix-plan.md` 修复项 2。
 
 **v1 假设**：与 `device-list` 同结构（type alias `CallbackActivatedJsonResponse = CallbackJsonResponse`）
 
@@ -308,9 +336,20 @@ aliases: [inl-field-verification]
 
 6. **与 `device-run` 的关系**：`device-list-active` 返回"已激活设备拓扑（含 I/O 地址）"，`device-run` 返回"活动设备运行状态（含 Status）"。两者互补：前者是配置拓扑，后者是运行时状态。
 
+**v3 模型确认**（2026-06-02 P0 修复，inl PR）：
+
+✅ **确认正确**：`topology/types.go` 中 `ActivatedTopologyResponse` 已正确建模，字段一一对应实机：
+- 顶层 `DataType` (int) / `Function` (string) / `IDevice` / `PNDriver` / `TotalInputLength` / `TotalOutputLength`
+- `DecentralDevice[]` 数组（单数, 命名约定）
+- `DecentralDevice[].Module[]` 数组
+- `Module[].SubModule[]` 数组
+- 实机 sample fixture: `inl/testdata/device-list-active_response_20260601_164518.json`
+
+注：`PNDriver` 在 CallBackActivatedJson 响应中无 `iDevice` 字段（仅 4 字段），与 CallBackJson 的 `PNDriverConfig`（5 字段含 `iDevice`）区分。两者是不同的 Go 类型，已分别建模。
+
 ### 字段名拼写兼容性
 
-⚠️ **已知偏差** — `DecentralDevice`（单数形式、可能拼错 "Decentral"）必须原样使用。`Module[]` / `SubModule[]` 而非 `Modules[]` / `SubModules[]`。`topology/types.go` 中的 `CallbackActivatedJsonResponse` 模型需完全重写，不可用 type alias 复用 `CallbackJsonResponse`。
+✅ **已验证通过** — `DecentralDevice`（单数形式、可能拼错 "Decentral"）原样使用 C++ 源码命名。`Module[]` / `SubModule[]` 而非 `Modules[]` / `SubModules[]`。`ActivatedTopologyResponse` 模型与实机响应完全一致，无需修改。
 
 ---
 
@@ -450,7 +489,15 @@ aliases: [inl-field-verification]
 
 | 命令 | 偏差描述 | 原因 | 影响 | 后续 PR |
 |------|---------|------|------|---------|
-| `device-list` (CallBackJson) | ① `Function` 是字符串 `"CallBackJson"` 不是对象；② 内容为 `IDevice`+`PNDriver` 配置而非 `Stations`/`Devices` 拓扑；③ 响应 DataType=12 而非 14 | 工业 PC 运行版本与 C++ 源码不一致；`CallBackJson` 语义 = "返回网卡配置"而非"返回设备拓扑" | `topology/types.go` 中 `CallbackJsonResponse` 模型**完全错误**，需重写为 IDevice+PNDriver 结构 | 新增 `internal/idevice/types.go` 或重命名 `topology` 包 |
-| `device-list-active` (CallBackActivatedJson) | ① 设备列表字段名为 `DecentralDevice` 非 `Devices`；② 含完整 Module/SubModule/Slot/IO 地址嵌套；③ 与 `device-list` 结构完全不同 | C++ 源码命名约定 `DecentralDevice` (单数)；两个 CallBack 响应语义不同 | `topology/types.go` 中 `CallbackActivatedJsonResponse` type alias 错误，需独立 struct | 重写 `CallbackActivatedJsonResponse`，含 DecentralDevice + Module + SubModule 完整层级 |
+| ~~`device-list` (CallBackJson)~~ | ~~① `Function` 是字符串 `"CallBackJson"` 不是对象；② 内容为 `IDevice`+`PNDriver` 配置而非 `Stations`/`Devices` 拓扑；③ 响应 DataType=12 而非 14~~ | ~~工业 PC 运行版本与 C++ 源码不一致；`CallBackJson` 语义 = "返回网卡配置"而非"返回设备拓扑"~~ | ✅ **2026-06-02 P0 修复**：`topology.CallbackJsonResponse` + `PNDriverConfig` 已建模（6+5 字段），Round-trip 测试用实机 JSON 作 fixture 通过 | ✅ 已修正 |
+| ~~`device-list-active` (CallBackActivatedJson)~~ | ~~① 设备列表字段名为 `DecentralDevice` 非 `Devices`；② 含完整 Module/SubModule/Slot/IO 地址嵌套；③ 与 `device-list` 结构完全不同~~ | ~~C++ 源码命名约定 `DecentralDevice` (单数)；两个 CallBack 响应语义不同~~ | ✅ **2026-06-02 P0 修复**：`topology.ActivatedTopologyResponse` 模型已与实机响应一致（v1 已正确建模），仅补充"✅ 已通过实机验证"注释 | ✅ 已修正（模型已正确） |
 | `device-gsd-config` (GetGSDFileNetwork) | `GSDFile` 为空且 `error:true`；v1 未建模 `error` 字段 | 工业 PC 192.168.3.15 未在网络配置中保存 GSD 文件；需换用有 GSD 文件的工业 PC 再测 | `gsdfile/types.go` 需新增 `Error bool` 字段 | 新增 `Error bool \`json:"error"\`` 到 `gsdfile.Function` |
 | `device-gsd-active` (GetGSDFileActivated) | NRC 协议错误 (响应命令字 0x2B04 ≠ 0x9271) | 工业 PC 192.168.3.15 的 `nrc2.out` 版本不支持此功能 | 命令无法在 192.168.3.15 上使用；需升级 nrc2.out 或换设备 | 确认 nrc2.out 版本号、升级或找支持设备重测 |
+
+---
+
+## 协议层未覆盖的项
+
+> `SetIDevice` 在 C++ 源分发表中**存在**（`PNConfigLibFileDesign.cpp:165-222` 第 18 个分支）。
+> 
+> **当前状态（2026-06-02 P0 修复）**：`SetIDevice` 已在 `internal/nrc/commands.go` Registry 中**注册骨架**（`config-set-idevice`，DataType=12，RiskWrite，GroupConfig），可参与 help 显示、Risk 分级、Registry 计数。完整参数（IO 长度、Activate 状态）需要 `--data` JSON 构造能力（`Args []ArgumentSpec` 还没接 `--data`），待后续 PR 补全。

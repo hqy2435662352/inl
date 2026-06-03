@@ -2,20 +2,21 @@
 
 ## Project
 
-`inl` 是工业 PC NRC Socket 协议的 CLI 调试工具。通过 TCP:6000 与运行 `nrc2.out` 的工业 PC 通信，收发 NRC 帧，解析 PROFINET GSD 设备列表、拓扑、配置。基于 **Cobra 命令树**（`inl gsd list` / `inl device list` / `inl topology scan` / `inl device setup`），全部命令元数据集中在 `internal/nrc/commands.go` 的 `Registry` 中（共 **22 条**：2 gsd + 7 device + 11 config + 1 interface + 1 topology）。Cobra 树按 `Group` 自动遍历 Registry 构建；写命令按 **Risk 等级**（`RiskRead` / `RiskWrite` / `RiskHighRiskWrite`）自动追加 `--yes` 标志，DCP 命令按 `spec.Args` 注册 `--interface` / `--mac` / `--name` / `--ip` / `--mask` 等 flag。AI Agent 可基于 `--help` 末行的 `Risk:` 标识自动决策是否需要确认。
+`inl` 是工业 PC NRC Socket 协议的 CLI 调试工具。通过 TCP:6000 与运行 `nrc2.out` 的工业 PC 通信，收发 NRC 帧，解析 PROFINET GSD 设备列表、拓扑、配置。基于 **Cobra 命令树**（`inl gsd list` / `inl device list` / `inl topology scan` / `inl device setup`），全部命令元数据集中在 `internal/nrc/commands.go` 的 `Registry` 中（共 **23 条**：2 gsd + 7 device + 12 config + 1 interface + 1 topology）。Cobra 树按 `Group` 自动遍历 Registry 构建；写命令按 **Risk 等级**（`RiskRead` / `RiskWrite` / `RiskHighRiskWrite`）自动追加 `--yes` 标志，DCP 命令按 `spec.Args` 注册 `--interface` / `--mac` / `--name` / `--ip` / `--mask` 等 flag。AI Agent 可基于 `--help` 末行的 `Risk:` 标识自动决策是否需要确认。
 
 ## Source Layout
 
 | Path | Purpose |
 |------|---------|
 | `main.go` | **Cobra 命令树入口**：rootCmd + `--target` / `--format` / `--output` 三个 PersistentFlags。`main()` 按 `[GroupInterface, GroupGsd, GroupDevice, GroupConfig, GroupTopology]` 顺序遍历 nrc.Registry 自动构建 cobra.Command 节点；`buildGroupCmd(group)` / `buildSubCmd(spec)` 两个泛化工厂 + `collectDCPArgs(cmd)` 辅助函数(DCP 命令参数提取);`runNrcCommand` 集成 **Risk 检查**（非 read 需 `--yes`，high-risk-write 额外二次确认提示）；`installRiskHelpFunc` 在 help 文本底部追加 `Risk: <level>` 行。**新增命令边际成本**：只在 Registry 追加一行 + 设置 `Group` 字段，main.go **无需任何修改** |
-| `internal/nrc/commands.go` | **命令元数据集中层** — 11 字段 `CommandSpec` struct（`Name` / `Code` / `DataType` / `Direction` / `Description` / `Risk` / `Response` / `Function` / `Group` / `Args` / `BodyBuilder`）+ `CommandGroup`(5 个常量) + `ArgumentSpec` + 22 条 `Registry` + 5 个 DataType=14/16 专用 `BodyBuilder`(`interfaceListBody` / `topologyScanBody` / `gsdMatchBody` / `deviceSetupNameBody` / `deviceSetupIPBody`) + `LookupByName` / `LookupByDataType` / `ExpectedResponseCode` / `RequestBody`(新签名 `(spec, args) (string, error)`) / `DefaultBodyBuilder`。`init()` 检查 Name 唯一 + DataType:Function 组合键唯一, 重复则 panic |
-| `internal/nrc/commands_test.go` | Registry 唯一性、Lookup 行为、RequestBody 正确性、风险分布、Group 分布、拼写陷阱、5 个新 DCP 命令的 Lookup + BodyBuilder 测试等的单元测试（**26 个**） |
+| `internal/nrc/commands.go` | **命令元数据集中层** — 11 字段 `CommandSpec` struct（`Name` / `Code` / `DataType` / `Direction` / `Description` / `Risk` / `Response` / `Function` / `Group` / `Args` / `BodyBuilder`）+ `CommandGroup`(5 个常量) + `ArgumentSpec` + 23 条 `Registry` + 5 个 DataType=14/16 专用 `BodyBuilder`(`interfaceListBody` / `topologyScanBody` / `gsdMatchBody` / `deviceSetupNameBody` / `deviceSetupIPBody`) + `LookupByName` / `LookupByDataType` / `ExpectedResponseCode` / `RequestBody`(新签名 `(spec, args) (string, error)`) / `DefaultBodyBuilder`。`init()` 检查 Name 唯一 + DataType:Function 组合键唯一, 重复则 panic |
+| `internal/nrc/commands_test.go` | Registry 唯一性、Lookup 行为、RequestBody 正确性、风险分布、Group 分布、拼写陷阱、5 个新 DCP 命令 + SetIDevice 的 Lookup + BodyBuilder 测试等的单元测试（**28 个**） |
 | `internal/nrc/annotation.go` | **Cobra Annotations 常量定义** — `AnnotationRisk` / `AnnotationPureGroup` / `AnnotationDataType` / `AnnotationFunction`，供 main.go 标注 + AI 调度器读取 |
 | `internal/nrc/frame.go` | NRC Socket 帧编解码：`BuildFrame`（构建）、`ReadFrame`（读取+校验）。CRC32 多项式为 IEEE 802.3 (`crc32.IEEE`) |
 | `internal/nrc/frame_test.go` | 帧编解码单元测试，含 PDF 已知正确帧的 CRC 验证 |
 | `internal/nrc/client.go` | TCP 客户端：`Connect`(5s 超时)、`SendReceive`(10s 超时)、中文错误提示 |
 | `internal/output/errors.go` | **结构化错误输出**（借鉴 lark-cli `output.Errorf` 模式）— `Error` struct（`Type` / `Code` / `Message` / `Hint` / `Detail`）+ `WriteError` 函数。AI 可通过 `code` 字段识别错误类型并自动决策 |
+| `internal/output/envelope.go` | **统一 stdout JSON 信封**（借鉴 lark-cli `internal/output/envelope.go`）— `Envelope` struct（`OK` / `Identity` / `Data` / `Error` / `Notice`）+ `WriteSuccess(w, data, notice)` 函数。所有命令 stdout 输出包裹在 `{ok, identity, data, _notice}` 中,AI 通过 `ok + data` 路径统一消费,`Data` 用 `json.RawMessage` 透传避免精度丢失/字段重排 |
 | `internal/gsd/types.go` | **GSD 领域模型** — 8 个 struct 完整覆盖 DataType=13 响应的 JSON 结构,每个字段均有中文注释说明含义、枚举值、存在条件。`MatchResponse` struct 覆盖 DataType=16(GSD 匹配) 响应 |
 | `internal/gsd/types_test.go` | 序列化往返测试，覆盖 HMS/Siemens/SMC 三种设备结构变体 + MatchResponse round-trip |
 | `internal/topology/types.go` | **拓扑响应领域模型** — `CallbackJsonResponse` / `CallbackActivatedJsonResponse`(type alias) + `Station` + `Device` struct,涵盖 DataType=12 + Function.Value=`CallBackJson` / `CallBackActivatedJson` 两种响应;`ScanResponse` struct 覆盖 DataType=14 + Function=1(DCP 发现) 响应 |
@@ -64,9 +65,9 @@ Response
 - `UseableModules` 双模式（FixedInSlots vs AllowedInSlots*）互斥，由 GSDML 源文件写法决定
 - 详细字段说明见 `internal/gsd/types.go` 注释
 
-### Registry 22 命令表
+### Registry 23 命令表
 
-inl 所有支持的 NRC 命令集中在 `internal/nrc/commands.go` 的 `Registry` 切片（22 条）中。每条 `CommandSpec` 含 11 字段。完整命令表：
+inl 所有支持的 NRC 命令集中在 `internal/nrc/commands.go` 的 `Registry` 切片（23 条）中。每条 `CommandSpec` 含 11 字段。完整命令表：
 
 | # | Name | Function.Value | Group | Risk | DataType |
 |---|------|----------------|-------|------|----------|
@@ -87,11 +88,12 @@ inl 所有支持的 NRC 命令集中在 `internal/nrc/commands.go` 的 `Registry
 | 15 | `config-shield` | `ShieldDevice` | `config` | `write` | 12 |
 | 16 | `config-unshield` | `UNShieldDevice` | `config` | `write` | 12 |
 | 17 | `config-compile` | `Compile` | `config` | `high-risk-write` | 12 |
-| 18 | `interface-list` | `"4"`(整数) | `interface` | `read` | 14 |
-| 19 | `topology-scan` | `"1"`(整数) | `topology` | `read` | 14 |
-| 20 | `gsd-match` | `""` | `gsd` | `read` | 16 |
-| 21 | `device-setup-name` | `"2"`(整数) | `device` | `write` | 14 |
-| 22 | `device-setup-ip` | `"3"`(整数) | `device` | `write` | 14 |
+| 18 | `config-set-idevice` | `SetIDevice` | `config` | `write` | 12 |
+| 19 | `interface-list` | `"4"`(整数) | `interface` | `read` | 14 |
+| 20 | `topology-scan` | `"1"`(整数) | `topology` | `read` | 14 |
+| 21 | `gsd-match` | `""` | `gsd` | `read` | 16 |
+| 22 | `device-setup-name` | `"2"`(整数) | `device` | `write` | 14 |
+| 23 | `device-setup-ip` | `"3"`(整数) | `device` | `write` | 14 |
 
 ✅ `ShieldDevice` / `UNShieldDevice` 拼写已统一（2026-06-01）。C++ 控制器端已纠正拼写错误（少 'e'），inl 内部命令名用 `shield` / `unshield`，请求体 `Function.Value` 用 `"ShieldDevice"` / `"UNShieldDevice"`（正确拼写）。
 
@@ -165,18 +167,44 @@ inl 借鉴 lark-cli 服务方法风险检查模式，在 `runNrcCommand` 中实�
 
 ### 输出约定（stdout/stderr 分流）
 
-借鉴 lark-cli 的 "stdout 是数据" 原则：
+借鉴 lark-cli 的 "stdout 是数据" 原则，所有成功命令的 stdout 输出包裹在 **统一 JSON 信封**（Envelope）中，AI Agent 通过 `ok` + `data` 路径统一消费。
 
 | 流 | 内容 | 示例 |
 |---|------|------|
-| **stdout** | 数据 / 命令结果（prettified JSON） | `{"DataType":13, "Device":[...]}` |
+| **stdout** | `{ok, data, _notice}` Envelope 格式 | `{"ok":true,"data":{"DataType":13,"Device":[...]},"_notice":{"command":"gsd-list","elapsed_ms":234}}` |
 | **stderr** | 进度 / 警告 / 结构化错误 | `🔌 连接中...`、 `⚠️  高危操作: ...`、 `--target 不能为空` |
+
+#### Envelope 结构
+
+```go
+// 源码: internal/output/envelope.go
+type Envelope struct {
+    OK       bool                   `json:"ok"`
+    Identity string                 `json:"identity,omitempty"`
+    Data     json.RawMessage        `json:"data,omitempty"`
+    Error    *Error                 `json:"error,omitempty"`
+    Notice   map[string]interface{} `json:"_notice,omitempty"`
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `ok` | bool | `true` = 成功 |
+| `identity` | string | 固定为 `"inl"`，多 CLI 协同时可区分来源 |
+| `data` | object | 命令的原始响应 JSON（`json.RawMessage` 透传，无字段重排 / 数字精度丢失） |
+| `_notice` | object | 诊断信息：`command` / `data_type` / `elapsed_ms`（DCP 写操作额外含 `dcp_write: true` / `verify_with`） |
+
+**DCP 写操作特例**（`device setup-name` / `device setup-ip`）：工业 PC 端无 JSON 响应，Envelope 形如 `{"ok": true, "data": null, "_notice": {"dcp_write": true, "verify_with": "topology-scan", ...}}`。AI 收到后应立即跑 `topology scan` 闭环验证。
+
+**DryRunFrame 特殊**：`--dry-run` 输出 `DryRunFrame`（见 [`internal/output/dryrun.go`](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/internal/output/dryrun.go)）而非 Envelope——其结构描述 NRC 帧字节（SyncByte / Command / CRC32），供 AI 校验 payload 用。
+
+**错误走 stderr**：所有 `*output.Error` 仍走 stderr（`WriteError(os.Stderr, err)`），与 lark-cli 约定一致。AI 解析失败的命令时**只检查 stderr**，不期望 stdout 有 Envelope。
 
 验证分流：
 
 ```bash
 inl gsd list --target 192.168.3.15 > out.json 2> progress.log
-# out.json: 仅 prettified JSON
+# out.json:     Envelope 包裹的 JSON
 # progress.log: 🔌 / 📤 / 💾 / ⚠️ 等进度行
 ```
 
@@ -237,9 +265,9 @@ inl config compile --help
 
 > **本章节是 inl 与 C++ 服务端协议对齐的"单一权威来源"**。当 C++ 源码、本地设计文档、实机响应三者出现冲突时，**以本章节为准**。所有 inl 命令的 `Function.Value` 字符串均直接对应 C++ 源码 `NetWorkTopologyFunction` 分发器分支。
 
-### 完整 17 命令表（DataType=12 协议层真相）
+### 完整 18 命令表（DataType=12 协议层真相）
 
-C++ 源分发器 [`NetWorkTopologyFunction`](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/io-controller/src/pnconfiglib/PNConfigLibFileDesign.cpp#L165-L222) 共 17 个 `Function.Value` 分支 + 1 个独立的 DataType=13 命令：
+C++ 源分发器 [`NetWorkTopologyFunction`](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/io-controller/src/pnconfiglib/PNConfigLibFileDesign.cpp#L165-L222) 共 18 个 `Function.Value` 分支 + 1 个独立的 DataType=13 命令：
 
 | # | inl 命令名 | Function.Value | Risk | DataType | C++ 分发分支 |
 |---|-----------|----------------|------|----------|--------------|
@@ -260,6 +288,7 @@ C++ 源分发器 [`NetWorkTopologyFunction`](file:///c:/Users/BYD/Documents/trae
 | 15 | `config-shield` | `ShieldDevice` | `write` | 12 | `ShieldDevice()` |
 | 16 | `config-unshield` | `UNShieldDevice` | `write` | 12 | `UNShieldDevice()` |
 | 17 | `config-compile` | `Compile` | `high-risk-write` | 12 | `Compile()` |
+| 18 | `config-set-idevice` | `SetIDevice` | `write` | 12 | `SetIDevice()` |
 
 ### C++ 源码位置
 
@@ -385,16 +414,18 @@ C++ 端 DataType=12 的 `Function` 是字符串 object（如 `Function: {Value: 
 
 | 命令 | 偏差描述 | 原因 | 影响 | 后续 PR |
 |------|---------|------|------|---------|
-| `device-run`（第 2 步曾误命名 `topology-get`） | 命令名暗示"PROFINET 拓扑"但实际返回"活动焊机列表" | C++ 端 `GetActRun` = "Get Active Run" 语义与拓扑无关 | 第 2 步文档误导；已在第 3 步**重命名为 `device-run`** 解决 | 已完成（见 tasks.md Task 4.3） |
-| `device-list` (CallBackJson) | ① `Function` 是字符串 `"CallBackJson"` 不是对象；② 内容为 `IDevice`+`PNDriver` 配置而非 `Stations`/`Devices` 拓扑；③ 响应 DataType=12 而非 14 | 工业 PC 运行版本与 C++ 源码不一致；`CallBackJson` 语义 = "返回网卡配置"而非"返回设备拓扑" | `topology/types.go` 中 `CallbackJsonResponse` 模型**完全错误**，需重写为 IDevice+PNDriver 结构 | 待 PR（新增 `internal/idevice/types.go` 或重命名 `topology` 包） |
-| `device-list-active` (CallBackActivatedJson) | ① 设备列表字段名为 `DecentralDevice` 非 `Devices`；② 含完整 Module/SubModule/Slot/IO 地址嵌套；③ 与 `device-list` 结构完全不同 | C++ 源码命名约定 `DecentralDevice` (单数)；两个 CallBack 响应语义不同 | `topology/types.go` 中 `CallbackActivatedJsonResponse` type alias 错误，需独立 struct | 待 PR（重写为 DecentralDevice + Module + SubModule 完整层级） |
+| `device-run`（第 2 步曾误命名 `topology-get`） | 命令名暗示"PROFINET 拓扑"但实际返回"活动焊机列表" | C++ 端 `GetActRun` = "Get Active Run" 语义与拓扑无关 | 第 2 步文档误导；已在第 3 步**重命名为 `device-run`** 解决 | ✅ 已完成（见 tasks.md Task 4.3） |
+| `device-list` (CallBackJson) | ① `Function` 是字符串 `"CallBackJson"` 不是对象；② 内容为 `IDevice`+`PNDriver` 配置而非 `Stations`/`Devices` 拓扑；③ 响应 DataType=12 而非 14 | 工业 PC 运行版本与 C++ 源码不一致；`CallBackJson` 语义 = "返回网卡配置"而非"返回设备拓扑" | ✅ 2026-06-02 P0 修复：新增 `topology.CallbackJsonResponse` + `PNDriverConfig` 完整覆盖（IDevice + PNDriver 6 字段），Round-trip 测试用实机 JSON 作 fixture 通过 | ✅ 已修正 |
+| `device-list-active` (CallBackActivatedJson) | ① 设备列表字段名为 `DecentralDevice` 非 `Devices`；② 含完整 Module/SubModule/Slot/IO 地址嵌套；③ 与 `device-list` 结构完全不同 | C++ 源码命名约定 `DecentralDevice` (单数)；两个 CallBack 响应语义不同 | ✅ 2026-06-02 P0 修复：确认 `topology.ActivatedTopologyResponse` 模型已与实机响应一致（DecentralDevice + Module + SubModule 完整层级），仅补充"✅ 已通过实机验证"注释 | ✅ 已修正（模型已正确） |
 | `device-gsd-config` (GetGSDFileNetwork) | `GSDFile` 为空且 `error:true`；v1 未建模 `error` 字段 | 工业 PC 192.168.3.15 未在网络配置中保存 GSD 文件 | `gsdfile/types.go` 需新增 `Error bool` 字段 | 待 PR（新增 `Error bool \`json:"error"\`` 到 `gsdfile.Function`） |
 | `device-gsd-active` (GetGSDFileActivated) | NRC 协议错误 (响应命令字 0x2B04 ≠ 0x9271) | 工业 PC 192.168.3.15 的 `nrc2.out` 版本不支持此功能 | 命令无法在 192.168.3.15 上使用；需升级 nrc2.out 或换设备 | 待 PR（确认 nrc2.out 版本号、升级或找支持设备重测） |
 | `device-setup-name` / `device-setup-ip` (DCP Function=2/3) | **副作用操作无 JSON 响应**——C++ 端直接收发 DCP 原始帧,成功时无显式确认,失败时通过 `BYD_TriggerErrorReport` 报告 | C++ 端 PerformOnlineAccess 协议设计如此(不走 NRC JSON 响应) | inl 端无法直接判断成功;只能通过后续 `topology scan` 验证名称/IP 变更(闭环验证) | 待 PR(`inl device setup` 命令执行后自动跑 `topology scan` 验证) |
 
 ### 协议层未覆盖的项
 
-> `SetIDevice` 在 C++ 源分发表中**存在**（`PNConfigLibFileDesign.cpp:165-222` 第 N 个分支），但 inl 第 3 步**未在 Registry 中注册**。原因：第 3 步聚焦"协议字段命名核对"读命令，写命令先做最小覆盖；`SetIDevice` 需带复杂参数（设备名/ID 映射）目前 inl 的 `Args []ArgumentSpec` 还没接 `--data` JSON 构造能力，留待后续 PR。决策记录见 `tasks.md` Task 4.3。
+> `SetIDevice` 在 C++ 源分发表中**存在**（`PNConfigLibFileDesign.cpp:165-222` 第 18 个分支）。
+>
+> **当前状态（2026-06-02 P0 修复）**：`SetIDevice` 已在 `internal/nrc/commands.go` Registry 中**注册骨架**（`config-set-idevice`，DataType=12，RiskWrite，GroupConfig），可参与 help 显示、Risk 分级、Registry 计数。完整参数（IO 长度、Activate 状态）需要 `--data` JSON 构造能力（`Args []ArgumentSpec` 还没接 `--data`），待后续 PR 补全。决策记录见 `tasks.md` Task 4.3 + `inl-p0-fix-plan.md` 修复项 3。
 
 ### 反馈循环：实机响应 → 反向核对领域模型
 
@@ -495,7 +526,7 @@ inl 配套 2 个 Skill 文档,位于 `feishu_cli/skills/`:
 - **`device-setup` 副作用验证** — `device setup-name` / `device setup-ip` 成功后,自动跑 `topology scan` 验证名称/IP 是否变更(闭环验证,目前 inl 端无任何成功判断依据)
 - **GSD 匹配降级算法** — `gsd match` 在 nrc2.out 不支持 DataType=16 时,自动降级为"AI 客户端按 VendorID+DeviceID 手动匹配 GSD 库"算法(已在 `inl-workflow-design.md §2.2` 备用)
 - **DCP Block 原始帧调试** — `device setup` 失败时,记录 C++ 端 DCP 原始帧(非 JSON)到 `testdata/`,便于事后分析交换机过滤 / VLAN 隔离等问题
-- **`SetIDevice` Registry 补登记** — 第 3 步临时移除,本步骤亦不涉及,按需补回
+- **`SetIDevice` Registry 补登记** — ✅ 2026-06-02 P0 修复完成（注册骨架, 参数化留待后续 PR）
 - **`SetIDevice` 与 `device-setup-name` 协同** — `device-setup-name` 修改 DCP 层名称,`SetIDevice` 修改 INL 配置层名称,两条命令应作为"配对新设备名"工作流的两步
 
 > 前序步骤候选(继续保留):

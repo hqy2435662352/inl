@@ -60,16 +60,13 @@ func TestScanResponse_RoundTrip(t *testing.T) {
 }
 
 func TestResponseRoundTrip(t *testing.T) {
-	raw := `{"DataType":12,"Stations":[]}`
+	raw := `{"DataType":12}`
 	var resp Response
 	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
 	if resp.DataType != 12 {
 		t.Errorf("DataType = %d, want 12", resp.DataType)
-	}
-	if len(resp.Stations) != 0 {
-		t.Errorf("Stations 应为空, got %d", len(resp.Stations))
 	}
 }
 
@@ -79,8 +76,8 @@ func TestResponseEmptyStations(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
-	if len(resp.Stations) != 0 {
-		t.Errorf("Stations 应为 nil, got %d", len(resp.Stations))
+	if resp.DataType != 12 {
+		t.Errorf("DataType = %d, want 12", resp.DataType)
 	}
 }
 
@@ -189,5 +186,68 @@ func TestActivatedTopologyResponseRoundTrip(t *testing.T) {
 	}
 	if len(resp2.DecentralDevice) != 1 {
 		t.Errorf("round-trip DecentralDevice len = %d, want 1", len(resp2.DecentralDevice))
+	}
+}
+
+// TestCallbackJsonResponseRoundTrip 验证 CallbackJsonResponse 可反序列化实机响应。
+//
+// Fixture 来源: inl/testdata/device-list_response_20260601_164426.json
+// (2026-06-01 工业 PC 192.168.2.14 实机响应)。
+func TestCallbackJsonResponseRoundTrip(t *testing.T) {
+	raw := `{"DataType":12,"Error":[],"ErrorID":[],"Function":"CallBackJson","IDevice":{"Activate":false,"InputLength":64,"OutputLength":64},"PNDriver":{"DeviceName":"profinetdriver","IPAddress":"192.168.2.14","SetInTheProject":true,"SubnetMask":"255.255.255.0","iDevice":false}}`
+	var resp CallbackJsonResponse
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+	if resp.Function != "CallBackJson" {
+		t.Errorf("Function = %q, want CallBackJson", resp.Function)
+	}
+	if resp.PNDriver.IPAddress != "192.168.2.14" {
+		t.Errorf("PNDriver.IPAddress = %q, want 192.168.2.14", resp.PNDriver.IPAddress)
+	}
+	if resp.PNDriver.DeviceName != "profinetdriver" {
+		t.Errorf("PNDriver.DeviceName = %q, want profinetdriver", resp.PNDriver.DeviceName)
+	}
+	if resp.PNDriver.IDevice != false {
+		t.Errorf("PNDriver.iDevice = %v, want false", resp.PNDriver.IDevice)
+	}
+	if resp.IDevice.InputLength != 64 {
+		t.Errorf("IDevice.InputLength = %d, want 64", resp.IDevice.InputLength)
+	}
+	if resp.IDevice.OutputLength != 64 {
+		t.Errorf("IDevice.OutputLength = %d, want 64", resp.IDevice.OutputLength)
+	}
+	if len(resp.Error) != 0 {
+		t.Errorf("Error 应为空数组, got %d", len(resp.Error))
+	}
+	if len(resp.ErrorID) != 0 {
+		t.Errorf("ErrorID 应为空数组, got %d", len(resp.ErrorID))
+	}
+
+	out, err := json.Marshal(&resp)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+	var again CallbackJsonResponse
+	if err := json.Unmarshal(out, &again); err != nil {
+		t.Fatalf("Re-Unmarshal failed: %v", err)
+	}
+	if again.PNDriver.IPAddress != "192.168.2.14" {
+		t.Errorf("round-trip PNDriver.IPAddress = %q", again.PNDriver.IPAddress)
+	}
+	if again.Function != "CallBackJson" {
+		t.Errorf("round-trip Function = %q", again.Function)
+	}
+}
+
+// TestCallbackJsonResponseHasIDeviceField 验证 PNDriverConfig.iDevice=true 可正确反序列化。
+func TestCallbackJsonResponseHasIDeviceField(t *testing.T) {
+	raw := `{"DataType":12,"Error":[],"ErrorID":[],"Function":"CallBackJson","IDevice":{"Activate":false,"InputLength":64,"OutputLength":64},"PNDriver":{"DeviceName":"pndriver","IPAddress":"192.168.2.14","SetInTheProject":true,"SubnetMask":"255.255.255.0","iDevice":true}}`
+	var resp CallbackJsonResponse
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+	if !resp.PNDriver.IDevice {
+		t.Error("iDevice should be true")
 	}
 }

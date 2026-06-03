@@ -187,9 +187,9 @@ func TestRequestBody_DefaultBuilder(t *testing.T) {
 	}
 }
 
-func TestRegistryHas22Entries(t *testing.T) {
-	if len(Registry) != 22 {
-		t.Fatalf("Registry 长度 = %d, want 22", len(Registry))
+func TestRegistryHas23Entries(t *testing.T) {
+	if len(Registry) != 23 {
+		t.Fatalf("Registry 长度 = %d, want 23", len(Registry))
 	}
 }
 
@@ -204,8 +204,8 @@ func TestRegistryByGroup(t *testing.T) {
 	if counts[GroupDevice] != 7 {
 		t.Errorf("GroupDevice = %d, want 7", counts[GroupDevice])
 	}
-	if counts[GroupConfig] != 11 {
-		t.Errorf("GroupConfig = %d, want 11", counts[GroupConfig])
+	if counts[GroupConfig] != 12 {
+		t.Errorf("GroupConfig = %d, want 12", counts[GroupConfig])
 	}
 	if counts[GroupInterface] != 1 {
 		t.Errorf("GroupInterface = %d, want 1", counts[GroupInterface])
@@ -223,8 +223,8 @@ func TestRiskDistribution(t *testing.T) {
 	if counts[RiskRead] != 9 {
 		t.Errorf("RiskRead = %d, want 9", counts[RiskRead])
 	}
-	if counts[RiskWrite] != 12 {
-		t.Errorf("RiskWrite = %d, want 12", counts[RiskWrite])
+	if counts[RiskWrite] != 13 {
+		t.Errorf("RiskWrite = %d, want 13", counts[RiskWrite])
 	}
 	if counts[RiskHighRiskWrite] != 1 {
 		t.Errorf("RiskHighRiskWrite = %d, want 1", counts[RiskHighRiskWrite])
@@ -433,5 +433,38 @@ func TestBodyBuilder_DeviceSetupIP(t *testing.T) {
 	want := `{"DataType":14,"Function":3,"Portname":"enp4s0","TargetMAC":"00:11:22:33:44:55","Newipaddress":"192.168.2.20","Newsubnetmask":"255.255.255.0"}`
 	if got != want {
 		t.Errorf("RequestBody(device-setup-ip) = %q, want %q", got, want)
+	}
+}
+
+// === P0 修复: SetIDevice 注册测试 (2026-06-02) ===
+
+func TestLookupConfigSetIDevice(t *testing.T) {
+	spec, ok := LookupByName("config-set-idevice")
+	if !ok {
+		t.Fatal("找不到 config-set-idevice")
+	}
+	if spec.DataType != 12 {
+		t.Errorf("DataType = %d, want 12", spec.DataType)
+	}
+	if spec.Function != "SetIDevice" {
+		t.Errorf("Function = %q, want SetIDevice", spec.Function)
+	}
+	if spec.Group != GroupConfig {
+		t.Errorf("Group = %q, want %q", spec.Group, GroupConfig)
+	}
+	if spec.Risk != RiskWrite {
+		t.Errorf("Risk = %q, want %q", spec.Risk, RiskWrite)
+	}
+}
+
+func TestBodyBuilder_ConfigSetIDevice(t *testing.T) {
+	spec, _ := LookupByName("config-set-idevice")
+	got, err := RequestBody(spec, nil)
+	if err != nil {
+		t.Fatalf("RequestBody err: %v", err)
+	}
+	want := `{"DataType":12,"Function":{"Value":"SetIDevice"}}`
+	if got != want {
+		t.Errorf("RequestBody(config-set-idevice) = %q, want %q", got, want)
 	}
 }

@@ -67,10 +67,15 @@ type CommandSpec struct {
 
 // Registry 命令注册表。inl 启动时遍历它构建 cobra 节点。
 //
-// 17 条记录与 C++ 源码 NetWorkTopologyFunction 分发器一一对齐：
+// 18 条 DataType=12 + 4 条 DataType=14 + 1 条 DataType=16 = 23 条。
+// 与 C++ 源码 NetWorkTopologyFunction 分发器一一对齐：
 //   - 1 条 gsd (DataType=13, read)
 //   - 5 条 device (DataType=12 + Function.Value 区分, read)
-//   - 11 条 config (DataType=12 + Function.Value 区分, 10 write + 1 high-risk-write)
+//   - 12 条 config (DataType=12 + Function.Value 区分, 11 write + 1 high-risk-write)
+//   - 1 条 interface (DataType=14, read)
+//   - 1 条 topology (DataType=14, read)
+//   - 1 条 gsd-match (DataType=16, read)
+//   - 2 条 device-setup (DataType=14, write)
 var Registry = []CommandSpec{
 	{
 		Name:        "gsd-list",
@@ -289,6 +294,19 @@ var Registry = []CommandSpec{
 		Risk:        RiskHighRiskWrite,
 		Response:    nil,
 		Function:    "Compile",
+		Group:       GroupConfig,
+		Args:        nil,
+		BodyBuilder: DefaultBodyBuilder,
+	},
+	{
+		Name:        "config-set-idevice",
+		Code:        0x9275,
+		DataType:    12,
+		Direction:   DirectionRequest,
+		Description: "设置 IDevice IO 长度参数",
+		Risk:        RiskWrite,
+		Response:    nil,
+		Function:    "SetIDevice",
 		Group:       GroupConfig,
 		Args:        nil,
 		BodyBuilder: DefaultBodyBuilder,

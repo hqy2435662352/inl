@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -176,6 +174,7 @@ func collectDCPArgs(cmd *cobra.Command) map[string]string {
 
 func runNrcCommand(name string) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
+		start := time.Now()
 		if targetFlag == "" {
 			return &output.Error{
 				Type:    "validation",
@@ -243,9 +242,19 @@ func runNrcCommand(name string) func(*cobra.Command, []string) error {
 		respCmd, data, err := client.SendReceiveFiltered(spec.Code, body, spec.DataType, nrc.ExpectedResponseCode(spec))
 		if err != nil {
 			// DCP 写操作 (DataType=14, Function=2/3) 无 JSON 响应,
-			// 控制器发完 DCP 帧后直接关连接 → 视为成功。
+			// 控制器发完 DCP 帧后直接关连接 → 视为成功, stdout 输出 Envelope (data: null)。
 			if spec.Risk == nrc.RiskWrite && strings.Contains(err.Error(), "closed") {
-				fmt.Fprintln(os.Stderr, "✅ DCP 操作已发送 (无 JSON 响应, 请用 topology scan 验证)")
+				notice := map[string]interface{}{
+					"command":     spec.Name,
+					"data_type":   spec.DataType,
+					"dcp_write":   true,
+					"elapsed_ms":  time.Since(start).Milliseconds(),
+					"verify_with": "topology-scan",
+				}
+				if err := output.WriteSuccess(cmd.OutOrStdout(), []byte("null"), notice); err != nil {
+					return fmt.Errorf("信封构造失败: %w", err)
+				}
+				fmt.Fprintln(cmd.ErrOrStderr(), "✅ DCP 操作已发送 (无 JSON 响应, 请用 topology scan 验证)")
 				return nil
 			}
 			return fmt.Errorf("通信失败: %w", err)
@@ -275,13 +284,14 @@ func runNrcCommand(name string) func(*cobra.Command, []string) error {
 			fmt.Fprintf(os.Stderr, "💾 原始响应已保存: %s\n", outPath)
 		}
 
-		var pretty bytes.Buffer
-		if err := json.Indent(&pretty, data, "", "  "); err != nil {
-			os.Stdout.Write(data)
-			return nil
+		notice := map[string]interface{}{
+			"command":    spec.Name,
+			"data_type":  spec.DataType,
+			"elapsed_ms": time.Since(start).Milliseconds(),
 		}
-		pretty.WriteByte('\n')
-		os.Stdout.Write(pretty.Bytes())
+		if err := output.WriteSuccess(cmd.OutOrStdout(), data, notice); err != nil {
+			return fmt.Errorf("信封构造失败: %w", err)
+		}
 		return nil
 	}
 }
