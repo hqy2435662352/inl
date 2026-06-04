@@ -187,9 +187,9 @@ func TestRequestBody_DefaultBuilder(t *testing.T) {
 	}
 }
 
-func TestRegistryHas23Entries(t *testing.T) {
-	if len(Registry) != 23 {
-		t.Fatalf("Registry 长度 = %d, want 23", len(Registry))
+func TestRegistryHas24Entries(t *testing.T) {
+	if len(Registry) != 24 {
+		t.Fatalf("Registry 长度 = %d, want 24", len(Registry))
 	}
 }
 
@@ -213,6 +213,9 @@ func TestRegistryByGroup(t *testing.T) {
 	if counts[GroupTopology] != 1 {
 		t.Errorf("GroupTopology = %d, want 1", counts[GroupTopology])
 	}
+	if counts[GroupSchema] != 1 {
+		t.Errorf("GroupSchema = %d, want 1", counts[GroupSchema])
+	}
 }
 
 func TestRiskDistribution(t *testing.T) {
@@ -220,8 +223,8 @@ func TestRiskDistribution(t *testing.T) {
 	for _, s := range Registry {
 		counts[s.Risk]++
 	}
-	if counts[RiskRead] != 9 {
-		t.Errorf("RiskRead = %d, want 9", counts[RiskRead])
+	if counts[RiskRead] != 10 {
+		t.Errorf("RiskRead = %d, want 10", counts[RiskRead])
 	}
 	if counts[RiskWrite] != 13 {
 		t.Errorf("RiskWrite = %d, want 13", counts[RiskWrite])
@@ -267,6 +270,13 @@ func TestUniqueDataTypeFunctionCombo(t *testing.T) {
 
 func TestAllEntriesHaveBodyBuilder(t *testing.T) {
 	for _, s := range Registry {
+		// 纯客户端命令 (DataType=0) 不发送 NRC 帧, BodyBuilder 必须为 nil
+		if s.DataType == 0 {
+			if s.BodyBuilder != nil {
+				t.Errorf("%s.BodyBuilder 应为 nil (纯客户端命令)", s.Name)
+			}
+			continue
+		}
 		if s.BodyBuilder == nil {
 			t.Errorf("%s.BodyBuilder 为 nil", s.Name)
 		}
@@ -466,5 +476,53 @@ func TestBodyBuilder_ConfigSetIDevice(t *testing.T) {
 	want := `{"DataType":12,"Function":{"Value":"SetIDevice"}}`
 	if got != want {
 		t.Errorf("RequestBody(config-set-idevice) = %q, want %q", got, want)
+	}
+}
+
+// === Step 7 新增测试: schema-list 纯客户端命令 ===
+
+func TestSchemaListRegistered(t *testing.T) {
+	spec, ok := LookupByName("schema-list")
+	if !ok {
+		t.Fatal("找不到 schema-list")
+	}
+	if spec.DataType != 0 {
+		t.Errorf("DataType = %d, want 0 (纯客户端哨兵值)", spec.DataType)
+	}
+	if spec.Group != GroupSchema {
+		t.Errorf("Group = %q, want %q", spec.Group, GroupSchema)
+	}
+	if spec.Risk != RiskRead {
+		t.Errorf("Risk = %q, want %q", spec.Risk, RiskRead)
+	}
+	if spec.Function != "" {
+		t.Errorf("Function = %q, want empty", spec.Function)
+	}
+	if spec.Code != 0 {
+		t.Errorf("Code = 0x%04X, want 0x0000", spec.Code)
+	}
+}
+
+func TestSchemaListBodyBuilderIsNil(t *testing.T) {
+	spec, ok := LookupByName("schema-list")
+	if !ok {
+		t.Fatal("找不到 schema-list")
+	}
+	if spec.BodyBuilder != nil {
+		t.Errorf("schema-list.BodyBuilder 应为 nil, got %T", spec.BodyBuilder)
+	}
+}
+
+func TestRequestBody_SchemaListReturnsEmpty(t *testing.T) {
+	spec, _ := LookupByName("schema-list")
+	// 纯客户端命令不应被 RequestBody 调用, 但若误调用, 默认 Builder 应回退到合法 JSON。
+	// 这里验证: 即便 BodyBuilder 为 nil, DefaultBodyBuilder 也能处理 (DataType=0 + Function="" → {"DataType":0})。
+	got, err := RequestBody(spec, nil)
+	if err != nil {
+		t.Fatalf("RequestBody err: %v", err)
+	}
+	want := `{"DataType":0}`
+	if got != want {
+		t.Errorf("RequestBody(schema-list) = %q, want %q", got, want)
 	}
 }

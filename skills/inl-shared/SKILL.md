@@ -9,6 +9,8 @@ description: "Use when first setting up inl, running --target, handling Risk lev
 
 `inl` 是工业 PC 上 NRC Socket 协议的 CLI 调试工具,通过 TCP:6000 与运行 `nrc2.out` 的工业 PC 通信。场景工作流见 [`../inl-workflow-profinet-write/SKILL.md`](../inl-workflow-profinet-write/SKILL.md)。
 
+> **AI Agent 起步推荐**: 接到 inl 相关任务时,**先跑 `inl schema list`**(纯客户端, 无需 `--target`)获取所有 23 条 NRC 命令的元数据(name / group / use / description / risk / data_type / function / args 8 字段),再决定调用哪个子命令。schema list 输出的字段、枚举值、约束与 inl 二进制自身完全一致,无需另查文档。
+
 ---
 
 ## 1. `--target` 工业 PC
@@ -170,14 +172,99 @@ C++ 控制器端 `ShieldDevice` / `UNShieldDevice` 拼写已纠正;inl 客户端
 | inl 命令名 | `config-shield` / `config-unshield` |
 | inl 请求体 `Function.Value` | `"ShieldDevice"` / `"UNShieldDevice"` |
 
-详细 17 命令表见 [`../../inl/AGENTS.md`](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/AGENTS.md)。
+详细 24 命令表(23 NRC + 1 schema 纯客户端)见 [`../../inl/AGENTS.md`](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/AGENTS.md)。
 
 ---
 
-## 8. 参考
+## 8. `inl schema list` — AI Agent 能力自发现
+
+```bash
+inl schema list
+```
+
+**这是 AI Agent 接到 inl 相关任务时的第一个动作**(无需 `--target`, 不连工业 PC, 不发 NRC 帧)。
+
+**stdout 输出** (Envelope 包裹):
+
+```json
+{
+  "ok": true,
+  "identity": "inl",
+  "data": {
+    "commands": [
+      {
+        "name": "gsd-list",
+        "group": "gsd",
+        "use": "list",
+        "description": "列出工业 PC 上所有 GSDML 设备驱动",
+        "risk": "read",
+        "data_type": 13,
+        "function": "",
+        "args": null
+      },
+      {
+        "name": "device-setup-name",
+        "group": "device",
+        "use": "setup-name",
+        "description": "通过 DCP 设置设备名称",
+        "risk": "write",
+        "data_type": 14,
+        "function": "2",
+        "args": [
+          {"name": "interface", "description": "端口名", "required": true},
+          {"name": "mac", "description": "目标 MAC", "required": true},
+          {"name": "name", "description": "新设备名称", "required": true}
+        ]
+      }
+      // ... 其余 21 条
+    ],
+    "groups": {
+      "config":    {"count": 12, "risk": "high-risk-write"},
+      "device":    {"count": 7,  "risk": "mixed"},
+      "gsd":       {"count": 2,  "risk": "read"},
+      "interface": {"count": 1,  "risk": "read"},
+      "topology":  {"count": 1,  "risk": "read"}
+    }
+  },
+  "_notice": {
+    "command": "schema-list",
+    "command_count": 23,
+    "group_count": 6
+  }
+}
+```
+
+**字段含义**:
+
+| 字段 | 含义 | AI 用法 |
+|------|------|---------|
+| `commands[].name` | 命令全名 (如 `gsd-list`) | 拼到 `inl <name>` argv |
+| `commands[].group` | 所属 Cobra 顶层组 | 拼到 `inl <group> <use>` argv |
+| `commands[].use` | 子命令 (去掉 `<group>-` 前缀) | 同上 |
+| `commands[].risk` | `read` / `write` / `high-risk-write` | 决定是否追加 `--yes` |
+| `commands[].data_type` | NRC DataType 字段 | 协议层校验 (无需 AI 关心) |
+| `commands[].function` | `Function.Value` 字符串或整数 | 协议层校验 (无需 AI 关心) |
+| `commands[].args[]` | 必填 DCP 参数列表 | 决定是否需追加 `--interface` 等 flag |
+| `groups[].count` | 该 group 内命令数 | 概览 |
+| `groups[].risk` | group 最高风险等级 | 整组放行决策 (pure group 跳过 --yes) |
+| `_notice.command_count` | NRC 命令数(不含 schema 自身) | 与 docs 交叉验证 |
+| `_notice.group_count` | group 总数(含 schema 自身) | 同上 |
+
+**为什么不需要 `--target`**:schema-list 读的是 inl **二进制自身**编译进去的 Registry,不是工业 PC 的状态。`init()` 对 `DataType=0 && Function==""` 的纯客户端命令跳过 DataType 唯一性检查,`runNrcCommand` 在 `spec.Group == GroupSchema` 时短路,直接返回 JSON,不走 TCP 连接流程。
+
+**和 `inl gsd list` 的本质区别**:
+
+| 命令 | 数据源 | 是否连工业 PC | 何时用 |
+|------|--------|---------------|--------|
+| `inl gsd list` | 工业 PC 端的 GSD 驱动库 | ✅ (TCP:6000) | 想看 PC 上**实际**有哪些 GSD 驱动 |
+| `inl schema list` | inl 自身编译进去的 Registry | ❌ | 想看 inl **支持**哪些命令及参数 |
+
+---
+
+## 9. 参考
 
 - [`../inl-workflow-profinet-write/SKILL.md`](../inl-workflow-profinet-write/SKILL.md) — 写命令工作流(4 层安全原则 + 11 命令安全矩阵)
 - [`../../inl/AGENTS.md`](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/AGENTS.md) — inl 客户端权威开发文档
-- [`../../inl/internal/nrc/commands.go`](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/internal/nrc/commands.go) — Registry 17 条命令元数据
+- [`../../inl/internal/nrc/commands.go`](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/internal/nrc/commands.go) — Registry 24 条命令元数据(23 NRC + 1 schema 纯客户端)
 - [`../../inl/internal/nrc/frame.go`](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/internal/nrc/frame.go) — NRC 帧编解码
 - [`../../inl/internal/output/errors.go`](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/internal/output/errors.go) — 结构化错误工厂

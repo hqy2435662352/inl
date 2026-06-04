@@ -33,14 +33,15 @@ const (
 	GroupConfig    CommandGroup = "config"
 	GroupInterface CommandGroup = "interface"
 	GroupTopology  CommandGroup = "topology"
+	GroupSchema    CommandGroup = "schema" // 纯客户端命令组: 不连接工业 PC, 仅读 inl 自身 Registry
 )
 
 // ArgumentSpec 描述命令的位置参数。
 // MVP 阶段写命令留空数组。
 type ArgumentSpec struct {
-	Name        string
-	Description string
-	Required    bool
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Required    bool   `json:"required"`
 }
 
 // ResponseParser 返回响应 JSON 反序列化的目标类型。
@@ -67,7 +68,7 @@ type CommandSpec struct {
 
 // Registry 命令注册表。inl 启动时遍历它构建 cobra 节点。
 //
-// 18 条 DataType=12 + 4 条 DataType=14 + 1 条 DataType=16 = 23 条。
+// 18 条 DataType=12 + 4 条 DataType=14 + 1 条 DataType=16 + 1 条纯客户端 = 24 条。
 // 与 C++ 源码 NetWorkTopologyFunction 分发器一一对齐：
 //   - 1 条 gsd (DataType=13, read)
 //   - 5 条 device (DataType=12 + Function.Value 区分, read)
@@ -76,6 +77,7 @@ type CommandSpec struct {
 //   - 1 条 topology (DataType=14, read)
 //   - 1 条 gsd-match (DataType=16, read)
 //   - 2 条 device-setup (DataType=14, write)
+//   - 1 条 schema (DataType=0, 纯客户端, 不发 NRC 帧)
 var Registry = []CommandSpec{
 	{
 		Name:        "gsd-list",
@@ -389,6 +391,23 @@ var Registry = []CommandSpec{
 		},
 		BodyBuilder: deviceSetupIPBody,
 	},
+
+	// === Group=schema: 纯客户端命令 (不发 NRC 帧, 不连工业 PC) ===
+	// DataType=0 / Function="" 是哨兵值, 在 runNrcCommand 中检查 spec.Group == GroupSchema 短路处理。
+	// init() 已对 Function=="" && DataType==0 的条目跳过 DataType 唯一性检查。
+	{
+		Name:        "schema-list",
+		Code:        0,
+		DataType:    0,
+		Direction:   DirectionRequest,
+		Description: "列出所有可用命令的元数据 (供 AI Agent 自发现能力)",
+		Risk:        RiskRead,
+		Response:    nil,
+		Function:    "",
+		Group:       GroupSchema,
+		Args:        nil,
+		BodyBuilder: nil,
+	},
 }
 
 func init() {
@@ -400,6 +419,12 @@ func init() {
 			panic("nrc.Registry: 重复的 Name: " + s.Name)
 		}
 		seenName[s.Name] = true
+
+		// 纯客户端命令 (Group=schema, Function="" 且 DataType=0) 不发送 NRC 帧,
+		// 跳过 DataType:Function 唯一性检查, 允许多个纯客户端命令共存。
+		if s.Function == "" && s.DataType == 0 {
+			continue
+		}
 
 		if s.Function == "" {
 			if seenDT[s.DataType] {

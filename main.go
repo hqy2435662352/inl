@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,7 +41,7 @@ func main() {
 		"原始响应保存路径 (默认: ./<name>_response_<时间戳>.json)")
 
 	for _, g := range []nrc.CommandGroup{
-		nrc.GroupInterface, nrc.GroupGsd, nrc.GroupDevice, nrc.GroupConfig, nrc.GroupTopology,
+		nrc.GroupInterface, nrc.GroupGsd, nrc.GroupDevice, nrc.GroupConfig, nrc.GroupTopology, nrc.GroupSchema,
 	} {
 		rootCmd.AddCommand(buildGroupCmd(g))
 	}
@@ -86,6 +87,11 @@ func buildGroupCmd(group nrc.CommandGroup) *cobra.Command {
 		use = "topology"
 		short = "PROFINET 拓扑管理"
 		long = "PROFINET 拓扑扫描与管理 (只读)。"
+		pureGroup = true
+	case nrc.GroupSchema:
+		use = "schema"
+		short = "AI Agent 能力发现"
+		long = "列出所有可用命令的元数据 (纯客户端, 不连接工业 PC)。"
 		pureGroup = true
 	}
 
@@ -175,20 +181,33 @@ func collectDCPArgs(cmd *cobra.Command) map[string]string {
 func runNrcCommand(name string) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		start := time.Now()
-		if targetFlag == "" {
-			return &output.Error{
-				Type:    "validation",
-				Code:    "target_required",
-				Message: "--target 不能为空",
-				Hint:    "请用 --target 192.168.x.x 指定工业 PC IP",
-			}
-		}
 		spec, ok := nrc.LookupByName(name)
 		if !ok {
 			return &output.Error{
 				Type:    "protocol",
 				Code:    "unknown_command",
 				Message: fmt.Sprintf("命令未注册: %q", name),
+			}
+		}
+
+		// === 纯客户端命令 —— 短路, 不连接工业 PC ===
+		// schema-list 等命令不发 NRC 帧, 不检查 --target, 不走 Risk 流程。
+		if spec.Group == nrc.GroupSchema {
+			data := buildSchemaJSON()
+			notice := map[string]interface{}{
+				"command":       spec.Name,
+				"command_count": schemaCommandCount(),
+				"group_count":   len(schemaGroupList()),
+			}
+			return output.WriteSuccess(cmd.OutOrStdout(), data, notice)
+		}
+
+		if targetFlag == "" {
+			return &output.Error{
+				Type:    "validation",
+				Code:    "target_required",
+				Message: "--target 不能为空",
+				Hint:    "请用 --target 192.168.x.x 指定工业 PC IP",
 			}
 		}
 
@@ -304,4 +323,120 @@ func installRiskHelpFunc(root *cobra.Command) {
 			fmt.Fprintf(cmd.OutOrStdout(), "\nRisk: %s\n", risk)
 		}
 	})
+}
+
+// === schema-list 纯客户端命令辅助函数 ===
+
+// cmdEntry 是 schema JSON 中单条命令的结构。
+type cmdEntry struct {
+	Name        string             `json:"name"`
+	Group       string             `json:"group"`
+	Use         string             `json:"use"`
+	Description string             `json:"description"`
+	Risk        string             `json:"risk"`
+	DataType    int                `json:"data_type"`
+	Function    string             `json:"function"`
+	Args        []nrc.ArgumentSpec `json:"args"`
+}
+
+// groupEntry 是 schema JSON 中单个 group 的汇总。
+type groupEntry struct {
+	Count int    `json:"count"`
+	Risk  string `json:"risk"`
+}
+
+// buildSchemaJSON 构造 schema-list 命令的响应 JSON。
+// 遍历 nrc.Registry, 跳过自身 (schema-list), 输出 commands[] + groups{}。
+func buildSchemaJSON() []byte {
+	commands := make([]cmdEntry, 0, len(nrc.Registry)-1)
+	groupCounts := make(map[string]int)
+	groupHasRead := make(map[string]bool)
+	groupHasWrite := make(map[string]bool)
+	groupHasHighRisk := make(map[string]bool)
+
+	for _, spec := range nrc.Registry {
+		if spec.Group == nrc.GroupSchema {
+			continue // 不报告 schema-list 自身
+		}
+		// use = spec.Name 去掉 "<group>-" 前缀 (如 "gsd-list" → "list")
+		use := spec.Name
+		if prefix := string(spec.Group) + "-"; strings.HasPrefix(spec.Name, prefix) {
+			use = spec.Name[len(prefix):]
+		}
+		commands = append(commands, cmdEntry{
+			Name:        spec.Name,
+			Group:       string(spec.Group),
+			Use:         use,
+			Description: spec.Description,
+			Risk:        string(spec.Risk),
+			DataType:    spec.DataType,
+			Function:    spec.Function,
+			Args:        spec.Args,
+		})
+		g := string(spec.Group)
+		groupCounts[g]++
+		switch spec.Risk {
+		case nrc.RiskRead:
+			groupHasRead[g] = true
+		case nrc.RiskWrite:
+			groupHasWrite[g] = true
+		case nrc.RiskHighRiskWrite:
+			groupHasHighRisk[g] = true
+		}
+	}
+
+	groups := make(map[string]groupEntry, len(groupCounts))
+	for g, count := range groupCounts {
+		groups[g] = groupEntry{Count: count, Risk: groupRiskLabel(groupHasRead[g], groupHasWrite[g], groupHasHighRisk[g])}
+	}
+
+	data := map[string]interface{}{
+		"commands": commands,
+		"groups":   groups,
+	}
+	out, _ := json.MarshalIndent(data, "", "  ")
+	return out
+}
+
+// groupRiskLabel 根据 group 内的 risk 分布, 推断最合适的单标签。
+//   - 包含 high-risk-write → "high-risk-write" (最高风险)
+//   - 包含 write/read 混合 → "mixed"
+//   - 仅 write → "write"
+//   - 仅 read → "read"
+func groupRiskLabel(hasRead, hasWrite, hasHighRisk bool) string {
+	switch {
+	case hasHighRisk:
+		return "high-risk-write"
+	case hasWrite && hasRead:
+		return "mixed"
+	case hasWrite:
+		return "write"
+	default:
+		return "read"
+	}
+}
+
+// schemaCommandCount 返回 schema 输出中的命令数 (不含 schema-list 自身)。
+func schemaCommandCount() int {
+	n := 0
+	for _, s := range nrc.Registry {
+		if s.Group != nrc.GroupSchema {
+			n++
+		}
+	}
+	return n
+}
+
+// schemaGroupList 返回 Registry 中去重并排序的 group 名称列表。
+func schemaGroupList() []string {
+	seen := make(map[string]bool)
+	var groups []string
+	for _, s := range nrc.Registry {
+		if seen[string(s.Group)] {
+			continue
+		}
+		seen[string(s.Group)] = true
+		groups = append(groups, string(s.Group))
+	}
+	return groups
 }
