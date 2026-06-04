@@ -25,7 +25,7 @@ flowchart LR
     subgraph 上位机["🖥️ 上位机：调试 PC（AI 舞台）"]
         AI[AI Agent<br/>Claude Code / Trae]
         INL[inl CLI<br/>Go + Cobra]
-        SKILLS[Skills 知识库<br/>SKILL.md × 2 (3 规划中)]
+        SKILLS[Skills 知识库<br/>SKILL.md × 3]
         DICT[GSDML JSON 字典<br/>📋 规划中]
     end
 
@@ -107,7 +107,7 @@ flowchart LR
 inl
 ├── gsd
 │   ├── list              ✅ 列出 GSD 设备库                  [DataType=13]
-│   ├── match             📋 匹配在线设备 ↔ GSD 驱动           [DataType=16]
+│   ├── match             ✅ 匹配在线设备 ↔ GSD 驱动           [DataType=16]
 │   └── info              📋 查看 GSD 设备详情                 [客户端查 JSON 字典]
 │
 ├── device
@@ -116,9 +116,9 @@ inl
 │   ├── run               ✅ 查看活动运行设备(焊机)             [DataType=12, GetActRun]
 │   ├── gsd-config        ✅ 查看配置中拓扑的 GSD 文件          [DataType=12, GetGSDFileNetwork]
 │   ├── gsd-active        ⚠️ 查看激活中拓扑的 GSD 文件          [DataType=12, nrc2.out 版本不支持]
+│   ├── setup-name        ✅ DCP 设置设备名称                  [DataType=14, Func=2]
+│   ├── setup-ip          ✅ DCP 设置设备 IP                   [DataType=14, Func=3]
 │   ├── discover          📋 DCP 发现网络设备                  [DataType=14, Func=1]
-│   ├── setup             📋 设置设备名称 + IP                 [DataType=14, Func=2+3]
-│   ├── rename            📋 重命名设备                        [DataType=14, Func=2]
 │   └── info              📋 查询设备详细信息                   [DataType=14, Func=1]
 │
 ├── config
@@ -132,27 +132,26 @@ inl
 │   ├── remove-submodule  ✅ 删除子模块                        [DataType=12, UninstallSubmodule]
 │   ├── shield            ✅ 屏蔽设备                          [DataType=12, ShieldDevice]
 │   ├── unshield          ✅ 取消屏蔽                          [DataType=12, UNShieldDevice]
+│   ├── set-idevice       ✅ 设置 IDevice 参数 (骨架)          [DataType=12, SetIDevice]
 │   ├── compile           ✅ 编译并应用配置 (高危)              [DataType=12, Compile, high-risk-write]
 │   ├── init              📋 初始化 inl 配置                   [本地文件]
 │   └── show              📋 显示当前配置                      [本地文件]
 │
-├── topology              📋 全组规划中
-│   ├── scan              📋 DCP 发现所有从站设备               [DataType=14, Func=1]
+├── topology
+│   ├── scan              ✅ DCP 发现所有从站设备               [DataType=14, Func=1]
 │   ├── active            📋 查看当前激活的拓扑                 [DataType=17]
 │   ├── verify            📋 对照期望拓扑进行校验                [客户端比对]
 │   └── compile           📋 编译为 PNConfig XML               [DataType=12, Func=Compile]
 │
-├── network (+shortcuts)  📋 全组规划中
-│   ├── +diagnose         📋 AI 语义：扫描 → 匹配 → 诊断报告
-│   ├── +auto-fix         📋 AI 语义：自动修复拓扑问题
-│   ├── +batch-setup      📋 AI 语义：批量配置多设备
-│   └── +generate         📋 AI 语义：端到端配网
+├── interface
+│   └── list              ✅ 列出工业 PC 网络端口               [DataType=14, Func=4]
 │
-├── schema                📋 规划中
-│   └── list              📋 AI Agent 发现所有可用命令
+├── schema
+│   └── list              ✅ AI Agent 发现所有可用命令          [纯客户端, 无 NRC 通信]
+│
+├── network (+shortcuts)  📋 全组规划中
 │
 └── raw                   📋 规划中
-    └── send              📋 直接发送自定义 JSON 帧
 ```
 
 ## Skill 体系
@@ -161,11 +160,9 @@ inl
 
 | Skill | 文件 | 类型 | 角色 | 状态 |
 |-------|------|------|------|:---:|
-| inl-shared | [inl/skills/inl-shared/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-shared/SKILL.md) | 🔒 共享约定 | 安全铁律、输出约定、错误处理、环境前置 | ✅ |
+| inl-shared | [inl/skills/inl-shared/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-shared/SKILL.md) | 🔒 共享约定 | 安全铁律、输出约定、错误处理 | ✅ |
 | inl-workflow-profinet-write | [inl/skills/inl-workflow-profinet-write/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-write/SKILL.md) | 🔄 工作流 | 写操作 4 层安全流程（预检/备份/确认/回滚） | ✅ |
-| inl-topology | — | 📦 领域 | 拓扑扫描/校验/编译的操作规范 | 📋 |
-| inl-device-config | — | 📦 领域 | DCP 命名/IP设置的详细规则 | 📋 |
-| inl-workflow-profinet-config | — | 🔄 工作流 | 端到端 10 步配网编排 | 📋 |
+| inl-workflow-profinet-config | [inl/skills/inl-workflow-profinet-config/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-config/SKILL.md) | 🔄 工作流 | 端到端 8 阶段配网编排（评估→发现→规划→写入→编译→验证） | ✅ |
 
 ### Skill 使用流程
 
@@ -214,5 +211,6 @@ sequenceDiagram
 - [inl/AGENTS.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/AGENTS.md) — 当前开发状态与协议契约（建议优先阅读）
 - [inl/skills/inl-shared/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-shared/SKILL.md) — 共享 Skill 约定 ✅
 - [inl/skills/inl-workflow-profinet-write/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-write/SKILL.md) — 写操作安全工作流 ✅
+- [inl/skills/inl-workflow-profinet-config/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-config/SKILL.md) — 端到端配网编排 ✅
 - [[cli-architecture-overview]] — lark-cli 架构（参考源）
 - [[cli-data-flows]] — lark-cli 数据流（参考源）

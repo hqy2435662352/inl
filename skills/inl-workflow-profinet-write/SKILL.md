@@ -1,6 +1,11 @@
 ---
 name: inl-workflow-profinet-write
+version: 1.0.0
 description: "写操作 4 层安全工作流：预检 → 备份 → 确认 → 验证 → 显式回滚。AI Agent 接到 '修改 / 添加 / 删除 / 编译' 工业 PC PROFINET 配置任务时强制加载本 skill。"
+metadata:
+  requires:
+    bins: ["inl"]
+    skills: ["inl-shared"]
 ---
 
 # inl PROFINET 写操作 4 层安全工作流

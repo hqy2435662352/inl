@@ -1,6 +1,10 @@
 ---
 name: inl-shared
-description: "Use when first setting up inl, running --target, handling Risk levels (read/write/high-risk-write), understanding --yes / --dry-run, or parsing structured errors (yes_required / confirmation_required). MUST be read before any other inl-* skill."
+version: 1.0.0
+description: "inl CLI 共享规则入口。使用 --target / --yes / --dry-run 前或收到 yes_required / confirmation_required 错误时必读。所有 inl-* skill 的前置依赖。"
+metadata:
+  requires:
+    bins: ["inl"]
 ---
 
 # inl 共享规则入口

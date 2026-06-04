@@ -23,58 +23,53 @@ inl 借鉴 [[cli-architecture-overview|lark-cli 架构]]，采用 Go 语言实�
 
 > **图例**：✅ 已实现 | 📋 规划中 | 🔮 未来扩展方向
 
-### 2.1 当前实现（Step 4 完成后）
+### 2.1 当前实现（Step 7 完成后）
 
 ```
 inl/
-├── main.go                          ✅ Cobra 命令树入口 + Root/Build/Bootstrap + Risk 检查 + --dry-run
+├── main.go                          ✅ Cobra 命令树入口 + 6 Group + Risk 检查 + --dry-run + Envelope
 ├── main_test.go                     ✅
 ├── go.mod / go.sum                  ✅ github.com/your-org/inl (依赖仅 cobra)
-├── AGENTS.md                        ✅ 协议契约 + 17 命令表 + 已知偏差 + Skills 体系
+├── AGENTS.md                        ✅ 项目导览 + 源码布局 + 开发规范
+├── README.md                        ✅ 项目说明
 │
 ├── internal/                        # === 内部包 ===
 │   ├── nrc/                         # NRC Socket 协议客户端
-│   │   ├── frame.go                 ✅ 帧封包/拆包 + CRC32
-│   │   ├── frame_test.go            ✅
-│   │   ├── client.go                ✅ TCP 连接 + 收发 (5s/10s 超时)
-│   │   ├── commands.go              ✅ 17 命令 Registry + BodyBuilder + Lookup
-│   │   ├── commands_test.go         ✅
+│   │   ├── frame.go / client.go    ✅ 帧编解码 + TCP 连接 (5s/10s 超时)
+│   │   ├── commands.go              ✅ 24 条 Registry + 5 DCP BodyBuilder + GroupSchema
 │   │   ├── annotation.go            ✅ Cobra Annotations 常量
-│   │   └── annotation_test.go       ✅
+│   │   └── *_test.go                ✅
 │   │
 │   ├── output/                      # 输出格式化
-│   │   ├── errors.go                ✅ 结构化错误 (Error struct + YesRequired/ConfirmationRequired)
-│   │   ├── errors_test.go           ✅
+│   │   ├── errors.go                ✅ 结构化错误 (Error + YesRequired/ConfirmationRequired)
+│   │   ├── envelope.go              ✅ 统一 stdout JSON 信封 {ok, data, _notice}
 │   │   ├── dryrun.go                ✅ DryRunFrame + PrintDryRunFrame
-│   │   └── dryrun_test.go           ✅
+│   │   └── *_test.go                ✅
 │   │
-│   ├── gsd/                         # GSD 领域模型 (DataType=13)
-│   │   ├── types.go                 ✅ 8 structs 完整覆盖 GSD 响应
-│   │   └── types_test.go            ✅
-│   │
-│   ├── topology/                    # 拓扑领域模型 (DataType=12 Activated)
-│   │   ├── types.go                 ⚠️ ActivatedTopologyResponse (CallBackJson 待修正)
-│   │   └── types_test.go            ✅
-│   │
-│   ├── devicestatus/                # GetActRun 领域模型
-│   │   ├── types.go                 ✅ Response/Function/Device
-│   │   └── types_test.go            ✅
-│   │
-│   └── gsdfile/                     # GSDML 文件响应领域模型
-│       ├── types.go                 ✅ Response + Error + GSDFile
-│       └── types_test.go            ✅
+│   ├── gsd/                         ✅ DataType=13/16 响应模型 (8 structs + MatchResponse)
+│   ├── topology/                    ✅ DataType=12/14 (CallbackJson/Activated/Scan)
+│   ├── devicestatus/                ✅ GetActRun 焊机状态模型
+│   ├── gsdfile/                     ✅ GSDML 文件响应模型
+│   ├── dcpdevice/                   ✅ DCP 发现设备模型 (9 字段 + Block 映射)
+│   └── netiface/                    ✅ 网络端口列表模型 + Flatten()
 │
 ├── skills/                          # === AI Agent Skills ===
 │   ├── inl-shared/
 │   │   └── SKILL.md                 ✅ 共享规则 (Risk/--yes/--dry-run/错误码)
-│   └── inl-workflow-profinet-write/
-│       └── SKILL.md                 ✅ 写操作 4 层安全流程
+│   ├── inl-workflow-profinet-write/
+│   │   └── SKILL.md                 ✅ 写操作 4 层安全流程
+│   └── inl-workflow-profinet-config/
+│       └── SKILL.md                 ✅ 端到端 8 阶段配网编排
 │
 ├── docs/
+│   ├── inl-prd.md                   ✅ 产品需求文档
+│   ├── inl-architecture.md          ✅ 架构设计文档
+│   ├── inl-workflow-design.md       ✅ 配网工作流设计
+│   ├── inl-step*.md                 ✅ 开发计划 (1-7)
 │   └── protocol/
 │       └── field-verification.md    ✅ 实机响应反向核对记录
 │
-└── testdata/                        ✅ 实机响应样本 JSON (~30 个文件)
+└── testdata/                        ✅ 实机响应样本 JSON (~50 个文件)
 ```
 
 ### 2.2 未来扩展方向
@@ -111,30 +106,30 @@ flowchart TB
     end
 
     subgraph CMD["命令层 (全部在 main.go 中)"]
-        ROOT[rootCmd<br/>3 Group 自动遍历 Registry]
+        ROOT[rootCmd<br/>6 Group 自动遍历 Registry]
         TOPO[gsd ✅]
         GSDCMD[device ✅]
         DEV[config ✅]
+        IFACE[interface ✅]
+        TOPOS[topology ✅]
+        SCH[schema ✅]
     end
 
     subgraph Internal["内部包"]
-        NRC[nrc/ ✅<br/>NRC帧 + TCP + 17 Registry]
-        OUT[output/ ✅<br/>错误 + DryRun]
+        NRC[nrc/ ✅<br/>NRC帧 + TCP + 24 Registry]
+        OUT[output/ ✅<br/>错误 + Envelope + DryRun]
         GSDT[gsd/ ✅]
-        TOPOT[topology/ ⚠️ 待修正]
+        TOPOT[topology/ ✅]
         DEVS[devicestatus/ ✅]
         GSDF[gsdfile/ ✅]
-    end
-
-    subgraph Planned["📋 规划中"]
-        SAFE[safety/<br/>安全策略]
-        DICT[dict/<br/>GSD字典]
-        VAL[validate/<br/>参数验证]
+        DCPD[dcpdevice/ ✅]
+        NETIF[netiface/ ✅]
     end
 
     subgraph Skills["Skill 层"]
         S_SH[inl-shared ✅]
         S_WW[inl-workflow-profinet-write ✅]
+        S_CFG[inl-workflow-profinet-config ✅]
     end
 
     subgraph Remote["远端"]
@@ -142,17 +137,9 @@ flowchart TB
     end
 
     MAIN --> ROOT
-    ROOT --> TOPO & GSDCMD & DEV
-    TOPO & GSDCMD & DEV --> NRC
+    ROOT --> TOPO & GSDCMD & DEV & IFACE & TOPOS & SCH
+    TOPO & GSDCMD & DEV & IFACE & TOPOS --> NRC
     NRC <-->|"TCP :6000<br/>JSON帧"| IOCTL
-    ROOT -.-> SAFE & VAL
-    DEV -.-> SAFE
-    GSDCMD -.-> DICT
-
-    style Planned fill:#fff3cd,stroke:#ffc107,stroke-dasharray: 5 5
-    style SAFE stroke-dasharray: 5 5
-    style DICT stroke-dasharray: 5 5
-    style VAL stroke-dasharray: 5 5
 ```
 
 ## 4. NRC 协议通信
@@ -220,12 +207,11 @@ sequenceDiagram
 | `device gsd-config` | 0x9275 | 12, Func=GetGSDFileNetwork | `NetWorkTopologyFunction` | ✅ |
 | `device gsd-active` | 0x9275 | 12, Func=GetGSDFileActivated | `NetWorkTopologyFunction` | ⚠️ |
 | `config set-driver` ~ `config compile` (11 个) | 0x9275 | 12, Func=对应值 | `NetWorkTopologyFunction` | ✅ |
-| `topology scan` | 0x9275 | 14 Func=1 | `PerformOnlineAccess` (DCP发现) | 📋 |
-| `topology active` | 0x9275 | 17 | `CallBackActivatedNetworkTopology` | 📋 |
-| `gsd match` | 0x9275 | 16 | `FilterGSDCompatibleDevices` | 📋 |
-| `device discover` | 0x9275 | 14 Func=1 | `PerformOnlineAccess` | 📋 |
-| `device setup` | 0x9275 | 14 Func=2+3 | `PerformOnlineAccess` | 📋 |
-| `raw send` | 0x9275 | 任意 | `switchsendmapvarvalue` | 📋 |
+| `gsd match` | 0x9275 | 16 | `FilterGSDCompatibleDevices` | ✅ |
+| `topology scan` | 0x9275 | 14 Func=1 | `PerformOnlineAccess` (DCP发现) | ✅ |
+| `device setup-name/ip` | 0x9275 | 14 Func=2/3 | `PerformOnlineAccess` | ✅ |
+| `interface list` | 0x9275 | 14 Func=4 | `PerformOnlineAccess` | ✅ |
+| `schema list` | — | 0 (纯客户端) | `registry traversal` | ✅ |
 | —（响应） | 0x9271 | — | `NRC_SendSocketCustomProtocal` | ✅ |
 
 ## 5. 输出系统
@@ -320,9 +306,9 @@ flowchart LR
 | 职责 | inl CLI（上位机） | io-controller（下位机） | 状态 |
 |------|-----------------|---------------------|:---:|
 | GSD 解析 | ❌ 不解析 — 消费预处理好的 JSON 字典 | ✅ GSD XML → JSON（DataType 13） | ⚠️ 字典未实现 |
-| DCP 发现/命名/IP | ❌ | ✅ PnDCP 协议栈（DataType 14） | 📋 |
-| 拓扑管理 | ❌ | ✅ PNConfig 引擎（DataType 12） | ✅ 17 Function 已实现 |
-| 设备匹配 | ❌ | ✅ GSD 兼容性筛选（DataType 16） | 📋 |
+| DCP 发现/命名/IP | ❌ | ✅ PnDCP 协议栈（DataType 14） | ✅ Func=1/2/3/4 已实现 |
+| 拓扑管理 | ❌ | ✅ PNConfig 引擎（DataType 12） | ✅ 18 Function 已实现 |
+| 设备匹配 | ❌ | ✅ GSD 兼容性筛选（DataType 16） | ✅ |
 | JSON 封装 | ✅ 拼 JSON 帧 | ✅ 解析 JSON → 执行 | ✅ |
 | 输出格式化 | ✅ JSON（Table/NDJSON/CSV 规划中） | ❌ | ⚠️ |
 | 安全策略 | ✅ 前置 dry-run + Risk 检查 | ✅ 硬件级运行态隔离 | ✅ |
@@ -333,20 +319,7 @@ flowchart LR
 ## 9. Skill 文件约定
 
 > [!NOTE]
-> 当前已实现 2 个 Skill（位于 `inl/skills/`），3 个规划中。约定参考 lark-cli 示例（如 `lark-shared/SKILL.md`）
-
-### YAML Frontmatter
-
-```yaml
----
-name: inl-shared
-version: 1.0.0
-description: "inl CLI 的安全铁律与通信约定"
-metadata:
-  requires:
-    bins: ["inl"]
----
-```
+> 当前已实现 3 个 Skill（位于 `inl/skills/`），形成三级依赖链：`inl-shared` ← `inl-workflow-profinet-write` ← `inl-workflow-profinet-config`。
 
 ### 已实现的 Skills
 
@@ -354,19 +327,7 @@ metadata:
 |-------|------|------|
 | inl-shared | [inl/skills/inl-shared/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-shared/SKILL.md) | 共享规则 (--target / Risk / --yes / --dry-run / 错误码) |
 | inl-workflow-profinet-write | [inl/skills/inl-workflow-profinet-write/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-write/SKILL.md) | 写操作 4 层安全流程 (预检/备份/确认/回滚) |
-
-### YAML Frontmatter
-
-```yaml
----
-name: inl-shared
-version: 1.0.0
-description: "inl CLI 的安全铁律与通信约定"
-metadata:
-  requires:
-    bins: ["inl"]
----
-```
+| inl-workflow-profinet-config | [inl/skills/inl-workflow-profinet-config/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-config/SKILL.md) | 端到端 8 阶段配网编排 (评估→发现→规划→委托write→验证) |
 
 ### 内容结构
 
@@ -384,6 +345,7 @@ metadata:
 - [inl/AGENTS.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/AGENTS.md) — 当前开发状态与协议契约（建议优先阅读）
 - [inl/skills/inl-shared/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-shared/SKILL.md) — 共享 Skill ✅
 - [inl/skills/inl-workflow-profinet-write/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-write/SKILL.md) — 写操作工作流 ✅
+- [inl/skills/inl-workflow-profinet-config/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-config/SKILL.md) — 配网编排工作流 ✅
 - [[cli-architecture-overview]] — lark-cli 架构（参考源）
 - [[cli-module-cmd]] — lark-cli 命令层（参考源）
 - [[cli-module-client-output]] — lark-cli 输出系统（参考源）
