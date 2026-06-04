@@ -53,6 +53,7 @@ inl gsd list --target 192.168.3.15 > out.json 2> progress.log
 
 - Every behavior change needs a test
 - Run `go test ./...` before committing
+- **Test data files must go in `testdata/`** — no `.json` / `.log` / response dumps in the project root
 
 ## Build & Test
 
