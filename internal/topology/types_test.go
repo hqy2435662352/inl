@@ -158,8 +158,8 @@ func TestActivatedTopologyResponseRoundTrip(t *testing.T) {
 		t.Fatalf("SubModule len = %d, want 1", len(mod.SubModule))
 	}
 	sub := mod.SubModule[0]
-	if sub.SubModuleName != "Input 32 byte" {
-		t.Errorf("SubModule[0].SubModuleName = %q, want Input 32 byte", sub.SubModuleName)
+	if sub.SubmoduleName != "Input 32 byte" {
+		t.Errorf("SubModule[0].SubmoduleName = %q, want Input 32 byte", sub.SubmoduleName)
 	}
 	if sub.InputLength != 32 {
 		t.Errorf("SubModule[0].InputLength = %d, want 32", sub.InputLength)

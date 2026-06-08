@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -22,7 +23,7 @@ func buildRootCmdForTest() *cobra.Command {
 	}
 	rootCmd.PersistentFlags().StringVar(&targetFlag, "target", "", "工业 PC IP 地址")
 	for _, g := range []nrc.CommandGroup{
-		nrc.GroupInterface, nrc.GroupGsd, nrc.GroupDevice, nrc.GroupConfig, nrc.GroupTopology, nrc.GroupSchema,
+		nrc.GroupInterface, nrc.GroupGsd, nrc.GroupDevice, nrc.GroupConfig, nrc.GroupTopology, nrc.GroupSchema, nrc.GroupRaw,
 	} {
 		rootCmd.AddCommand(buildGroupCmd(g))
 	}
@@ -35,7 +36,15 @@ func TestDryRunFlag(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
-	root.SetArgs([]string{"--target", "1.2.3.4", "config", "add-device", "--dry-run"})
+	// Step 10.A: config-add-device 需要 --data, 此处提供有效 payload + --no-fetch
+	// (避免 BodyBuilder 自动 fetch 触发网络调用)
+	root.SetArgs([]string{
+		"--target", "1.2.3.4",
+		"config", "add-device",
+		"--data", `{"RefGSD":"gsdml.xml","DAP_ID":"0x0001"}`,
+		"--no-fetch",
+		"--dry-run",
+	})
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute() failed: %v", err)
@@ -191,24 +200,25 @@ func TestSchemaList_DoesNotIncludeSelf(t *testing.T) {
 	if env.Notice.Command != "schema-list" {
 		t.Errorf("Notice.command = %q, want schema-list", env.Notice.Command)
 	}
-	if env.Notice.CommandCount != 23 {
-		t.Errorf("Notice.command_count = %d, want 23 (不含自身)", env.Notice.CommandCount)
+	if env.Notice.CommandCount != 24 {
+		// Step 8: 24 = 23 (旧) + 1 (raw-send)
+		t.Errorf("Notice.command_count = %d, want 24 (不含自身, 含 raw-send)", env.Notice.CommandCount)
 	}
-	if env.Notice.GroupCount != 6 {
-		// 6 个 group: gsd/device/config/interface/topology/schema (groups 包含 schema 组, 但 commands 不含)
-		t.Errorf("Notice.group_count = %d, want 6", env.Notice.GroupCount)
+	if env.Notice.GroupCount != 7 {
+		// 7 个 group: gsd/device/config/interface/topology/schema/raw (groups 包含 schema + raw, 但 commands 不含)
+		t.Errorf("Notice.group_count = %d, want 7 (含 raw 组)", env.Notice.GroupCount)
 	}
-	if len(env.Data.Commands) != 23 {
-		t.Errorf("len(commands) = %d, want 23 (不含 schema-list 自身)", len(env.Data.Commands))
+	if len(env.Data.Commands) != 24 {
+		t.Errorf("len(commands) = %d, want 24 (不含 schema-list 自身, 含 raw-send)", len(env.Data.Commands))
 	}
 	for _, c := range env.Data.Commands {
 		if c["name"] == "schema-list" {
 			t.Errorf("commands 不应含 schema-list 自身, got: %+v", c)
 		}
 	}
-	if len(env.Data.Groups) != 5 {
-		// groups 不含 schema 组 (因为 schema 组内没有 commands)
-		t.Errorf("len(groups) = %d, want 5 (gsd/device/config/interface/topology)", len(env.Data.Groups))
+	if len(env.Data.Groups) != 6 {
+		// groups 不含 schema 组 (schema 组内只有 schema-list 自身), 但含 raw 组 (有 raw-send)
+		t.Errorf("len(groups) = %d, want 6 (gsd/device/config/interface/topology/raw)", len(env.Data.Groups))
 	}
 }
 
@@ -224,8 +234,9 @@ func TestBuildSchemaJSON(t *testing.T) {
 	if !ok {
 		t.Fatalf("commands 字段类型错误: %T", parsed["commands"])
 	}
-	if len(commands) != 23 {
-		t.Errorf("len(commands) = %d, want 23 (不含 schema-list 自身)", len(commands))
+	if len(commands) != 24 {
+		// Step 8: 24 = 23 (旧) + 1 (raw-send)
+		t.Errorf("len(commands) = %d, want 24 (不含 schema-list 自身, 含 raw-send)", len(commands))
 	}
 
 	// 验证每条 command 含 8 个字段
@@ -281,8 +292,9 @@ func TestBuildSchemaJSON(t *testing.T) {
 	if !ok {
 		t.Fatalf("groups 字段类型错误: %T", parsed["groups"])
 	}
-	if len(groups) != 5 {
-		t.Errorf("len(groups) = %d, want 5 (gsd/device/config/interface/topology)", len(groups))
+	if len(groups) != 6 {
+		// Step 8: 6 = 5 (旧) + 1 (raw 组有 raw-send)
+		t.Errorf("len(groups) = %d, want 6 (gsd/device/config/interface/topology/raw)", len(groups))
 	}
 
 	// config 组的 risk 应是 high-risk-write (因含 config-compile)
@@ -301,3 +313,91 @@ func TestBuildSchemaJSON(t *testing.T) {
 
 // 抑制 unused import 警告
 var _ = json.Marshal
+
+// === Step 10.B: "closed" 启发式收紧单元测试 (2026-06-04, 2026-06-08 扩展) ===
+//
+// 历史: 旧版用 `Risk == nrc.RiskWrite && strings.Contains(err, "closed")` 过宽, 把
+// 所有 DataType=12 config 写命令的 "closed" 错误也吞掉了, 误判为成功。
+// 修复后: 抽出 `isDCPWriteClosedConnection(spec, err)` 守卫:
+//   - DCP 写 (DataType=14 + Risk=Write) → 视为成功 (发完即关)
+//   - Compile (DataType=12 + Function="Compile") → 视为成功 (编译重启协议栈)
+//   - 其它 DataType=12 config 写 → 不误吞
+
+// TestIsDCPWriteClosedConnection 覆盖 spec.DataType / spec.Risk / spec.Function /
+// err.Error() 四因素的真值表。
+func TestIsDCPWriteClosedConnection(t *testing.T) {
+	closedErr := fmt.Errorf("read tcp 127.0.0.1:6000: use of closed network connection")
+	otherErr := fmt.Errorf("read tcp 127.0.0.1:6000: i/o timeout")
+
+	// 12 条 config 写命令的代表性 spec (DataType=12 + Risk=Write)
+	configSpec, ok := nrc.LookupByName("config-set-driver")
+	if !ok {
+		t.Fatal("config-set-driver 必须在 Registry 中存在")
+	}
+
+	// DCP 写命令的代表性 spec (DataType=14 + Risk=Write)
+	dcpWriteSpec, ok := nrc.LookupByName("device-setup-name")
+	if !ok {
+		t.Fatal("device-setup-name 必须在 Registry 中存在")
+	}
+
+	// Compile 命令的代表性 spec (DataType=12 + Function="Compile")
+	compileSpec, ok := nrc.LookupByName("config-compile")
+	if !ok {
+		t.Fatal("config-compile 必须在 Registry 中存在")
+	}
+
+	cases := []struct {
+		name string
+		spec nrc.CommandSpec
+		err  error
+		want bool
+	}{
+		// === DataType=12 config 写 (非 Compile) + closed → false ===
+		{
+			name: "config-set-driver+closed → false (修复重点: 不再误吞)",
+			spec: configSpec, err: closedErr, want: false,
+		},
+		{
+			name: "config-set-driver+非closed → false",
+			spec: configSpec, err: otherErr, want: false,
+		},
+		{
+			name: "config-set-driver+nil → false",
+			spec: configSpec, err: nil, want: false,
+		},
+
+		// === DCP 写 + closed → true (保留原行为) ===
+		{
+			name: "DCP-写+closed → true (DCP 发完即关)",
+			spec: dcpWriteSpec, err: closedErr, want: true,
+		},
+		{
+			name: "DCP-写+非closed → false",
+			spec: dcpWriteSpec, err: otherErr, want: false,
+		},
+
+		// === Compile + closed → true (2026-06-08: 编译重启协议栈, 必然关连接) ===
+		{
+			name: "config-compile+closed → true (编译重启协议栈, 视为成功)",
+			spec: compileSpec, err: closedErr, want: true,
+		},
+		{
+			name: "config-compile+非closed → false",
+			spec: compileSpec, err: otherErr, want: false,
+		},
+		{
+			name: "config-compile+nil → false",
+			spec: compileSpec, err: nil, want: false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := isDCPWriteClosedConnection(c.spec, c.err)
+			if got != c.want {
+				t.Errorf("isDCPWriteClosedConnection(%s, %q) = %v, want %v",
+					c.spec.Name, c.err, got, c.want)
+			}
+		})
+	}
+}

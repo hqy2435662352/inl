@@ -36,15 +36,19 @@ type Response struct {
 //
 // 实机样本: `inl/testdata/device-list_response_20260601_164426.json`。
 //
-// 注意：当配置中存在 PROFINET 设备时, 顶层会出现 `DecentralDevice[]` 数组;
-// 本结构暂未建模该字段(实机空配置时不存在), Go json.Unmarshal 对未知字段宽容不会报错。
+// 2026-06-04 v2 字段补全（基于 Step 10.B 假设 B 实机验证）:
+//   - 当配置中存在 PROFINET 设备时, 顶层会出现 `DecentralDevice[]` 数组
+//   - 写命令（如 UninstallPNDevice）依赖此字段, 故必须建模
+//   - 空配置时该字段不存在于响应中, Unmarshal 后 DecentralDevice 为 nil (omitempty 保护)
+//   - 与 ActivatedTopologyResponse.DecentralDevice 同类型 (同一份设备数据)
 type CallbackJsonResponse struct {
-	DataType int            `json:"DataType"`
-	Function string         `json:"Function"`
-	Error    []interface{}  `json:"Error"`
-	ErrorID  []interface{}  `json:"ErrorID"`
-	IDevice  IDeviceInfo    `json:"IDevice"`
-	PNDriver PNDriverConfig `json:"PNDriver"`
+	DataType        int               `json:"DataType"`
+	Function        string            `json:"Function"`
+	Error           []interface{}     `json:"Error"`
+	ErrorID         []interface{}     `json:"ErrorID"`
+	IDevice         IDeviceInfo       `json:"IDevice"`
+	PNDriver        PNDriverConfig    `json:"PNDriver"`
+	DecentralDevice []DecentralDevice `json:"DecentralDevice,omitempty"`
 }
 
 // PNDriverConfig 是 CallBackJson 响应中的 PNDriver 信息。
@@ -82,7 +86,10 @@ type ActivatedTopologyResponse struct {
 }
 
 // DecentralDevice 描述一个分布式的 PROFINET 从站设备。
+// 2026-06-08 补全字段: DAP_ID/DAP_Name/VendorName (C++ AddModule 需 DAP_ID 查 GSD 配置)
 type DecentralDevice struct {
+	DAP_ID             string   `json:"DAP_ID"`
+	DAP_Name           string   `json:"DAP_Name"`
 	DeviceID           string   `json:"DeviceID"`
 	DeviceName         string   `json:"DeviceName"`
 	IPAddress          string   `json:"IPAddress"`
@@ -95,11 +102,13 @@ type DecentralDevice struct {
 	SetInTheProject    bool     `json:"SetInTheProject"`
 	SubnetMask         string   `json:"SubnetMask"`
 	VendorID           string   `json:"VendorID"`
+	VendorName         string   `json:"VendorName"`
 	Module             []Module `json:"Module"`
 }
 
 // Module 描述设备中的一个可插拔模块。
 type Module struct {
+	ModuleID   string      `json:"ModuleID"`
 	ModuleName string      `json:"ModuleName"`
 	Slot       int         `json:"Slot"`
 	SubModule  []SubModule `json:"SubModule"`
@@ -107,11 +116,14 @@ type Module struct {
 
 // SubModule 描述模块中的一个子模块。
 type SubModule struct {
+	SubmoduleID        string `json:"SubmoduleID"`
+	SubmoduleName      string `json:"SubmoduleName"`
+	Subslot            int    `json:"Subslot"`
+	Virtual            bool   `json:"Virtual"`
 	InputLength        int    `json:"InputLength"`
 	InputStartAddress  int    `json:"InputStartAddress"`
 	OutputLength       int    `json:"OutputLength"`
 	OutputStartAddress int    `json:"OutputStartAddress"`
-	SubModuleName      string `json:"SubModuleName"`
 }
 
 // PNDriverInfo 描述 PROFINET 控制器 (PN Driver) 的网络参数。
