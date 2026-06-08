@@ -1,0 +1,14 @@
+{
+  "DataType": 12,
+  "DecentralDevice": null,
+  "Error": [
+    "在进行设备卸载时索引不到需要卸载的设备。"
+  ],
+  "ErrorID": [
+    20
+  ],
+  "Function": {
+    "SetPNDeviceNum": 1,
+    "Value": "UninstallPNDevice"
+  }
+}

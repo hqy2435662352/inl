@@ -358,6 +358,7 @@ INIT → ASSESSING → DISCOVERING → CLARIFYING → PLANNING → REVIEWING →
 - ❌ 跳过 remove-*/compile 的强制备份
 - ❌ 盲配完成后报告"设备已验证通过"——必须标注 "⚠️ 设备未实际验证"
 - ❌ 用 `device run` 的 Status 判断是否应该配置
+- ❌ **臆想设备/模块/子模块 ID** — `config add-device` 的 `DAP_ID`、`config add-module` 的 `ModuleID`、`config add-submodule` 的 `SubmoduleID` **必须**从 `gsd list` 返回的实际值中提取，**严禁**自编（如 `"0x0001"`）
 
 ---
 

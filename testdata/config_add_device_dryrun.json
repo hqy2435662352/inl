@@ -1,0 +1,12 @@
+{
+  "description": "添加一个 PROFINET 设备到配置 (提供 RefGSD/DAP_ID, 其他字段 C++ 自动生成)",
+  "sync_byte": "0x4E66",
+  "command": "0x9275",
+  "datatype": 12,
+  "function": "AddPNDevice",
+  "payload": "{\"DataType\":12,\"Function\":{\"DAP_ID\":1,\"RefGSD\":\"GSDML-V2.4-HERON-12345678\",\"Value\":\"AddPNDevice\"}}",
+  "payload_hex": "7b224461746154797065223a31322c2246756e6374696f6e223a7b224441505f4944223a312c22526566475344223a224753444d4c2d56322e342d4845524f4e2d3132333435363738222c2256616c7565223a22416464504e446576696365227d7d",
+  "crc32": "0xAFB7B69B",
+  "total_bytes": 108,
+  "risk": "write"
+}

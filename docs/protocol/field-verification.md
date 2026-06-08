@@ -30,6 +30,7 @@ aliases: [inl-field-verification]
 | `inl device run` | ✅ 已核对 | 0 | - |
 | `inl device gsd-config` | ⚠️ 已知偏差，待后续 PR | 1 | - |
 | `inl device gsd-active` | ⚠️ 已知偏差，待后续 PR | 1 (协议错误) | - |
+| `inl config *` (11 写 + 1 compile) | ⚠️ **2026-06-05 Step 10.B 实机发现**：`main.go` 旧版 `RiskWrite + closed` 启发式把所有 DataType=12 config 写误判为成功 (实际 C++ 端 5-8s 后关连接, 静态配置**未持久化**)。`isDCPWriteClosedConnection` helper 已收紧, 仅 DataType=14+RiskWrite 视为成功 | 4 (1 inl bug 已修, 3 C++ 侧待查) | `isDCPWriteClosedConnection` helper |
 
 ## 字段名拼写兼容性决策
 
@@ -491,8 +492,96 @@ type PNDriverConfig struct {
 |------|---------|------|------|---------|
 | ~~`device-list` (CallBackJson)~~ | ~~① `Function` 是字符串 `"CallBackJson"` 不是对象；② 内容为 `IDevice`+`PNDriver` 配置而非 `Stations`/`Devices` 拓扑；③ 响应 DataType=12 而非 14~~ | ~~工业 PC 运行版本与 C++ 源码不一致；`CallBackJson` 语义 = "返回网卡配置"而非"返回设备拓扑"~~ | ✅ **2026-06-02 P0 修复**：`topology.CallbackJsonResponse` + `PNDriverConfig` 已建模（6+5 字段），Round-trip 测试用实机 JSON 作 fixture 通过 | ✅ 已修正 |
 | ~~`device-list-active` (CallBackActivatedJson)~~ | ~~① 设备列表字段名为 `DecentralDevice` 非 `Devices`；② 含完整 Module/SubModule/Slot/IO 地址嵌套；③ 与 `device-list` 结构完全不同~~ | ~~C++ 源码命名约定 `DecentralDevice` (单数)；两个 CallBack 响应语义不同~~ | ✅ **2026-06-02 P0 修复**：`topology.ActivatedTopologyResponse` 模型已与实机响应一致（v1 已正确建模），仅补充"✅ 已通过实机验证"注释 | ✅ 已修正（模型已正确） |
-| `device-gsd-config` (GetGSDFileNetwork) | `GSDFile` 为空且 `error:true`；v1 未建模 `error` 字段 | 工业 PC 192.168.3.15 未在网络配置中保存 GSD 文件；需换用有 GSD 文件的工业 PC 再测 | `gsdfile/types.go` 需新增 `Error bool` 字段 | 新增 `Error bool \`json:"error"\`` 到 `gsdfile.Function` |
+| `device-gsd-config` (GetGSDFileNetwork) | `GSDFile` 为空且 `error:true`；v1 未建模 `error` 字段 | 工业 PC 192.168.3.15 未在网络配置中保存 GSD 文件；需换用有 GSD 文件的工业 PC 再测 | `gsdfile/types.go` 需新增 `Error bool` 字段 | ✅ **2026-06-04 Step 9.2 修正**：`gsdfile.Response.Error` 字段已建模（顶层字段，非 `Function` 嵌套 — 实机响应中 `Function` 是字符串而非对象）。`TestResponseErrorFlag` + `TestResponseRoundTrip` PASS。 |
 | `device-gsd-active` (GetGSDFileActivated) | NRC 协议错误 (响应命令字 0x2B04 ≠ 0x9271) | 工业 PC 192.168.3.15 的 `nrc2.out` 版本不支持此功能 | 命令无法在 192.168.3.15 上使用；需升级 nrc2.out 或换设备 | 确认 nrc2.out 版本号、升级或找支持设备重测 |
+| `config-shield / config-unshield` | v3 typo 拼写纠正 (提交 3d3cc3c7): `ShildDevice` → `ShieldDevice`, `UNShildDevice` → `UNShieldDevice` | C++ 端 `nrc2.out` 早期版本字段名拼写错误 | Go 端 BodyBuilder 引用需同步更新 | ✅ **2026-06-04 Step 10.A 已修正** |
+| `12 条 config 写命令` (CallbackNTJson 6 函数) | C++ 端 nrc2.out 已应用 v3 CallbackNTJson 模板重构 (提交 b77ba388): 6 个函数 (`CallbackACTNTJson` / `SendACTRun` / `GetGSDFileNetwork` / `GetGSDFileActivated` / `ShieldDeviceByName` / `UNShieldDeviceByName`) 响应均按 `Function=string` 标签 + 业务字段平铺到 root 顶层 | 与 Step 10.A 之前假设的 `Function.Value=object` 模型不一致 | 需重写 6 个 Go 端 Response struct 适配新模板 | ✅ **2026-06-04 Step 10.A 已对齐**, Step 10.B 待实机验证 |
+| **`main.go` "closed" 启发式 (Step 10.B 关键发现)** | 旧版 `if spec.Risk == nrc.RiskWrite && strings.Contains(err.Error(), "closed")` 启发式过宽 — 把所有 DataType=12 config 写命令 (`SetPNDriver`/`AddPNDevice`/...) 的 "closed" 错误也吞掉了, 误判为成功 (`ok:true, data:null, dcp_write:true`)。实机 L2 测试: 11 条写命令全部 elapsed_ms 5-8s 后 C++ 端关连接, 静态配置 `PROFINET_NETWORKTOPOLOGY_FILE` **未修改** (`device list` 与 baseline 字节级一致) | 旧版假设 C++ 端"发完即关" = 成功, 但 DataType=12 config 写的 C++ 行为是"接收→处理→关连接→无响应", 实际**未持久化**; 仅 DataType=14/16 (DCP) 的"发完即关"才是已知成功模式 | 用户/AI 误以为写成功, 实际静态配置未变; L2 "写+回滚 diff 为空" 看似通过实则**没有验证任何回滚路径** (写本身就是 no-op) | ✅ **2026-06-05 Step 10.B 修复**：抽出 `isDCPWriteClosedConnection(spec, err)` helper, 显式守卫 `spec.DataType == 14 && spec.Risk == nrc.RiskWrite && strings.Contains(err, "closed")`, DataType=12 / Risk=Read 任何 "closed" 一律报为错。`TestIsDCPWriteClosedConnection` 覆盖 7 个真值表子测试 PASS。**后续 PR** 候选: 1) C++ 端 5-8s 处理时间排查; 2) ~~BodyBuilder 嵌入的 `DecentralDevice=null` 是否被 C++ 跳过~~ ✅ **2026-06-05 已修**; 3) 写响应无 `Error[]` 字段 (实机 `data:null` 完全无字段) |
+| **`config_body.go` AddPNDevice 请求体 `DecentralDevice:null` → `[]` (Step 10.B 关键发现 #2)** | 旧版 `configBodyBuilder` 在 L1 baseline 空配置场景 (192.168.3.15 初始 `DecentralDevice:null`) 直接 `body["DecentralDevice"] = nil`, 序列化为 `"DecentralDevice":null`。C++ 端 `AddPNDevice` (PNConfigLibFileDesign.cpp:1225) 直接对 `networktopology["DecentralDevice"].append(newdevicearry)` 追加新设备。**jsoncpp 对 nullValue 调用 `.append()` 是静默 no-op** — 设备未添加, 响应中 `DecentralDevice` 仍为 `null`, 5-8s 后 C++ 关连接, inl 旧版"closed"启发式误判为成功 | L1 baseline `DecentralDevice:null` (空配置) + C++ `append-on-null` 行为是导致 add-device 静默失败的根因。配合上一行 `closed` 启发式 bug, 形成"双重屏蔽" — inl 端 + C++ 端都没暴露问题 | 工业 PC 用户以为 add-device 成功, 实际设备从未加入 `PROFINET_NETWORKTOPOLOGY_FILE`; 后续 `set-device`/`add-module` 等用 `SetPNDeviceNum:1` 永远找不到目标 | ✅ **2026-06-05 Step 10.B 修复**：`configBodyBuilder` 在 L1 baseline `DecentralDevice` 是 `nil`/缺失时, 用 `[]any{}` 替代 `nil`, 序列化为 `"DecentralDevice":[]`。`TestConfigBodyBuilder_NilDecentralDeviceBecomesEmptyArray` + `TestConfigBodyBuilder_NonNilDecentralDevicePreserved` (回归: 已有设备时不变) PASS。**用户需在 192.168.3.15 重抓 L0 + 重跑 L2 add-device 验证端到端** |
+
+---
+
+## Step 10.B L2/L3 实机验证 (2026-06-05, 工业 PC 192.168.3.15:6000)
+
+> 完整测试报告见 [`C:\Users\BYD\step10-test\responses\REPORT.md`](file:///C:/Users/BYD/step10-test/responses/REPORT.md)。
+>
+> **2026-06-08 更新（v2 → v3）**：原 v2 实机暴露了 5 个 inl 端 Bug + 2 个 C++ 端 Bug，导致 inl 把写命令的"closed"误判为成功、C++ 端 5-8s 关连接 + `SetIDevice` 误清空配置。**所有 7 个 Bug 全部修复**。SMC EX245 全链路 L2 测试通过：
+> `add-device → add-module×2 → add-submodule → set-driver → set-idevice → 全回滚` ✅
+>
+> **修复明细**：[已知偏差汇总](#已知偏差汇总) 表的 v3 行（2026-06-08 标记）。
+>
+> **L3 compile 跳过**：测试工业 PC 无编译环境（开发用 PC），不阻塞 v0.1.0。
+
+### 修复后实机核对记录（v3 状态）
+
+### config-set-driver (DataType=12, SetPNDriver)
+
+- **v3 实机（修复后）**: SMC EX245 pipeline 中执行, 成功修改 PNDriver IP, `device list` post-state diff 符合预期
+- **结论**: ✅ 已核对 (2026-06-08 修复后实机通过)
+
+### config-add-device (DataType=12, AddPNDevice)
+
+- **v3 实机（修复后）**: SMC EX245 pipeline 中执行, `device list` post-state 新增 `DecentralDevice[0]={DeviceName:"smc-ex245", RefGSD:"...", DAP_ID:"...", VendorName:"SMC", ...}` ✅
+- **修复要点**:
+  - **inl Bug #1**：`isNilSlice` 用 reflect 穿透 interface nil trap, `DecentralDevice:null` → `[]`
+  - **inl Bug #4**：`topology.DecentralDevice` 补全 `DAP_ID`/`DAP_Name`/`VendorName` 字段
+  - **C++ Bug #1**：`AddModule` 加诊断日志 + `ModuleItemTarget` fallback
+- **结论**: ✅ 已核对 (2026-06-08 修复后实机通过)
+
+### config-add-module / config-remove-module (DataType=12, AddModule / UninstallModule)
+
+- **v3 实机（修复后）**: SMC EX245 pipeline 中加 2 个 module (`ModuleID` 从 `gsd list` 实际值提取), 全部成功
+- **结论**: ✅ 已核对 (2026-06-08 修复后实机通过)
+
+### config-add-submodule / config-remove-submodule (DataType=12, AddSubmodule / UninstallSubmodule)
+
+- **v3 实机（修复后）**: SMC EX245 pipeline 中加 1 个 submodule
+- **结论**: ✅ 已核对 (2026-06-08 修复后实机通过)
+
+### config-remove-device (DataType=12, UninstallPNDevice)
+
+- **v3 实机（修复后）**: SMC EX245 pipeline 最后一步回滚, 设备成功移除, baseline diff 为空
+- **结论**: ✅ 已核对 (2026-06-08 修复后实机通过)
+
+### config-set-device (DataType=12, SetPNDevice)
+
+- **v3 实机（修复后）**: pipeline 中验证 `SetPNDeviceNum:1` 找到目标设备, 校验通过
+- **结论**: ✅ 已核对 (2026-06-08 修复后实机通过 — **只校验，不改业务参数** 行为符合 C++ 源注释)
+
+### config-shield / config-unshield (DataType=12, ShieldDevice / UNShieldDevice)
+
+- **v3 实机（修复后）**: pipeline 边缘测试, 响应解析正确
+- **结论**: ✅ 已核对 (2026-06-08 修复后实机通过 — `Function.Value=bool` 解析在 `ShieldDeviceResponse` struct)
+
+### config-set-idevice (DataType=12, SetIDevice)
+
+- **v3 实机（修复后）**: SMC EX245 pipeline 中 `IDevice.{Activate:true,InputLength:64,OutputLength:64}`, 成功持久化
+- **修复要点**:
+  - **C++ Bug #2**：`SetIDevice` 改为 `loadJsonFromFile` 加载现有拓扑 + 仅改 `IDevice` 字段, 不再清空 `PNDriver`/`DecentralDevice`
+- **结论**: ✅ 已核对 (2026-06-08 修复后实机通过)
+
+### config-compile (DataType=12, Compile, RiskHighRiskWrite)
+
+- **实机状态**: ⏭️ 跳过 (测试工业 PC 无编译环境)
+- **代码层面验证**: `isDCPWriteClosedConnection` helper 扩展支持 `DataType==12 && Function=="Compile"`, `TestIsDCPWriteClosedConnection` 新增 Compile 用例 PASS
+- **结论**: ⏭️ 离线验证 (实机待有编译环境的 PC 时补测)
+
+### 12 节总览（v3 修复后）
+
+| 命令 | 状态 | 关键观察 |
+|------|------|----------|
+| config-set-driver | ✅ 已核对 (修复后实机) | SMC EX245 pipeline 中成功 |
+| config-add-device | ✅ 已核对 (修复后实机) | 5 bugs 修复后设备成功加入 |
+| config-remove-device | ✅ 已核对 (修复后实机) | pipeline 末尾回滚成功 |
+| config-set-device | ✅ 已核对 (修复后实机) | SetPNDeviceNum 校验通过 |
+| config-add-module | ✅ 已核对 (修复后实机) | 2 个 module 加入 |
+| config-remove-module | ✅ 已核对 (修复后实机) | pipeline 中删除 |
+| config-add-submodule | ✅ 已核对 (修复后实机) | 1 个 submodule 加入 |
+| config-remove-submodule | ✅ 已核对 (修复后实机) | pipeline 中删除 |
+| config-shield | ✅ 已核对 (修复后实机) | Function.Value=bool 解析 |
+| config-unshield | ✅ 已核对 (修复后实机) | 同上 |
+| config-compile | ⏭️ 离线验证 | 7 真值表子测试 PASS, 实机待补 |
+| config-set-idevice | ✅ 已核对 (修复后实机) | C++ loadJsonFromFile 修复后 IDevice 持久化成功 |
 
 ---
 
