@@ -14,3 +14,8 @@ Thumbs.db
 *.log
 gsd_out*.json
 topo_out.json
+
+# 开发期调试残留 (Step 8-10 期间)
+err.txt
+out.txt
+testdata/test*.txt
