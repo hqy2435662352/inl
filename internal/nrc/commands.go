@@ -4,7 +4,10 @@
 // 新增命令只需在 Registry 中追加一行，main.go 的 Cobra 树按 Group 自动遍历。
 package nrc
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // Direction 区分命令是请求侧还是响应侧（用于扩展性）。
 type Direction int
@@ -34,6 +37,7 @@ const (
 	GroupInterface CommandGroup = "interface"
 	GroupTopology  CommandGroup = "topology"
 	GroupSchema    CommandGroup = "schema" // 纯客户端命令组: 不连接工业 PC, 仅读 inl 自身 Registry
+	GroupRaw       CommandGroup = "raw"    // 透传原始 JSON 帧: 兜底覆盖非标准 NRC 命令
 )
 
 // ArgumentSpec 描述命令的位置参数。
@@ -162,130 +166,154 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "设置 PROFINET 控制器 (PN Driver) 参数",
+		Description: "设置 PROFINET 控制器 (PN Driver) 参数 (DeviceName/IPAddress/SubnetMask/SetInTheProject)",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "SetPNDriver",
 		Group:       GroupConfig,
-		Args:        nil,
-		BodyBuilder: DefaultBodyBuilder,
+		Args: []ArgumentSpec{
+			{Name: "data", Description: "PNDriver JSON (含 DeviceName/IPAddress/SubnetMask/SetInTheProject)", Required: true},
+		},
+		BodyBuilder: configSetDriverBody,
 	},
 	{
 		Name:        "config-add-device",
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "添加一个 PROFINET 设备到配置",
+		Description: "添加一个 PROFINET 设备到配置 (提供 RefGSD/DAP_ID, 其他字段 C++ 自动生成)",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "AddPNDevice",
 		Group:       GroupConfig,
-		Args:        nil,
-		BodyBuilder: DefaultBodyBuilder,
+		Args: []ArgumentSpec{
+			{Name: "data", Description: "Function JSON (含 RefGSD/DAP_ID)", Required: true},
+		},
+		BodyBuilder: configAddDeviceBody,
 	},
 	{
 		Name:        "config-remove-device",
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "从配置中卸载一个 PROFINET 设备",
+		Description: "从配置中卸载一个 PROFINET 设备 (1-based SetPNDeviceNum 索引)",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "UninstallPNDevice",
 		Group:       GroupConfig,
-		Args:        nil,
-		BodyBuilder: DefaultBodyBuilder,
+		Args: []ArgumentSpec{
+			{Name: "data", Description: "Function JSON (含 SetPNDeviceNum)", Required: true},
+		},
+		BodyBuilder: configRemoveDeviceBody,
 	},
 	{
 		Name:        "config-set-device",
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "修改一个已存在 PROFINET 设备的参数",
+		Description: "校验已存在 PROFINET 设备 (C++ 端 SetPNDevice 仅做编译前校验, 不直接改业务参数)",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "SetPNDevice",
 		Group:       GroupConfig,
-		Args:        nil,
-		BodyBuilder: DefaultBodyBuilder,
+		Args: []ArgumentSpec{
+			{Name: "data", Description: "Function JSON (含 SetPNDeviceNum)", Required: true},
+		},
+		BodyBuilder: configSetDeviceBody,
 	},
 	{
 		Name:        "config-add-module",
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "向设备添加一个 Module",
+		Description: "向设备添加一个 Module (SetPNDeviceNum + ModuleID)",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "AddModule",
 		Group:       GroupConfig,
-		Args:        nil,
-		BodyBuilder: DefaultBodyBuilder,
+		Args: []ArgumentSpec{
+			{Name: "data", Description: "Function JSON (含 SetPNDeviceNum/ModuleID)", Required: true},
+		},
+		BodyBuilder: configAddModuleBody,
 	},
 	{
 		Name:        "config-remove-module",
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "从设备卸载一个 Module",
+		Description: "从设备卸载一个 Module (SetPNDeviceNum + SetModuleSlot)",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "UninstallModule",
 		Group:       GroupConfig,
-		Args:        nil,
-		BodyBuilder: DefaultBodyBuilder,
+		Args: []ArgumentSpec{
+			{Name: "data", Description: "Function JSON (含 SetPNDeviceNum/SetModuleSlot)", Required: true},
+		},
+		BodyBuilder: configRemoveModuleBody,
 	},
 	{
 		Name:        "config-add-submodule",
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "向 Module 添加一个 Submodule",
+		Description: "向 Module 添加一个 Submodule (SetPNDeviceNum + ModuleID + SubmoduleID)",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "AddSubmodule",
 		Group:       GroupConfig,
-		Args:        nil,
-		BodyBuilder: DefaultBodyBuilder,
+		Args: []ArgumentSpec{
+			{Name: "data", Description: "Function JSON (含 SetPNDeviceNum/ModuleID/SubmoduleID)", Required: true},
+		},
+		BodyBuilder: configAddSubmoduleBody,
 	},
 	{
 		Name:        "config-remove-submodule",
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "从 Module 卸载一个 Submodule",
+		Description: "从 Module 卸载一个 Submodule (SetPNDeviceNum + SetModuleSlot + SetSubmoduleSlot)",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "UninstallSubmodule",
 		Group:       GroupConfig,
-		Args:        nil,
-		BodyBuilder: DefaultBodyBuilder,
+		Args: []ArgumentSpec{
+			{Name: "data", Description: "Function JSON (含 SetPNDeviceNum/SetModuleSlot/SetSubmoduleSlot)", Required: true},
+		},
+		BodyBuilder: configRemoveSubmoduleBody,
 	},
 	{
 		Name:        "config-shield",
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "屏蔽一个设备 (屏蔽后 PLC 不再访问该设备)",
+		Description: "屏蔽一个设备 (屏蔽后 PLC 不再访问该设备, 响应 Result 为 bool)",
 		Risk:        RiskWrite,
 		Response:    nil,
-		Function:    "ShieldDevice",
-		Group:       GroupConfig,
-		Args:        nil,
-		BodyBuilder: DefaultBodyBuilder,
+		// 2026-06-04 v3: C++ 源常量拼写已纠正回 "ShieldDevice" (typo 修复提交 3d3cc3c7)
+		// 来源: io-controller/src/ioc/profinet_constants.h:82
+		Function: "ShieldDevice",
+		Group:   GroupConfig,
+		Args: []ArgumentSpec{
+			{Name: "data", Description: "ShieldDevice JSON (含 DeviceName)", Required: true},
+		},
+		BodyBuilder: configShieldBody,
 	},
 	{
 		Name:        "config-unshield",
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "取消屏蔽一个设备",
+		Description: "取消屏蔽一个设备 (响应 Result 为 bool)",
 		Risk:        RiskWrite,
 		Response:    nil,
-		Function:    "UNShieldDevice",
-		Group:       GroupConfig,
-		Args:        nil,
-		BodyBuilder: DefaultBodyBuilder,
+		// 2026-06-04 v3: C++ 源常量拼写已纠正回 "UNShieldDevice" (typo 修复提交 3d3cc3c7)
+		// 来源: io-controller/src/ioc/profinet_constants.h:83
+		Function: "UNShieldDevice",
+		Group:   GroupConfig,
+		Args: []ArgumentSpec{
+			{Name: "data", Description: "UNShieldDevice JSON (含 DeviceName)", Required: true},
+		},
+		BodyBuilder: configUnshieldBody,
 	},
 	{
 		Name:        "config-compile",
@@ -305,13 +333,15 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "设置 IDevice IO 长度参数",
+		Description: "设置 IDevice IO 长度参数 (Activate/InputLength/OutputLength)",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "SetIDevice",
 		Group:       GroupConfig,
-		Args:        nil,
-		BodyBuilder: DefaultBodyBuilder,
+		Args: []ArgumentSpec{
+			{Name: "data", Description: "IDevice JSON (含 Activate/InputLength/OutputLength)", Required: true},
+		},
+		BodyBuilder: configSetIDeviceBody,
 	},
 
 	// === DataType=14: DCP 相关 (PerformOnlineAccess) ===
@@ -407,6 +437,26 @@ var Registry = []CommandSpec{
 		Group:       GroupSchema,
 		Args:        nil,
 		BodyBuilder: nil,
+	},
+
+	// === Group=raw: 透传原始 JSON 帧 (兜底覆盖非标准 NRC 命令) ===
+	// DataType=0 是哨兵, init() 唯一性检查对 Function=="" && DataType==0 跳过。
+	// Code=0x9275 是 NRC 请求命令字, 但 DataType 来自用户提供的 --data payload, 不会被 DefaultBodyBuilder 覆盖。
+	// Risk=write: 无法预判 payload 副作用, 默认要求 --yes。
+	{
+		Name:        "raw-send",
+		Code:        0x9275,
+		DataType:    0,
+		Direction:   DirectionRequest,
+		Description: "透传任意 JSON 帧到工业 PC (兜底覆盖非标准 NRC 命令)",
+		Risk:        RiskWrite,
+		Response:    nil,
+		Function:    "",
+		Group:       GroupRaw,
+		Args: []ArgumentSpec{
+			{Name: "data", Description: "完整 JSON payload (必填)", Required: true},
+		},
+		BodyBuilder: rawSendBody,
 	},
 }
 
@@ -530,4 +580,36 @@ func deviceSetupIPBody(spec CommandSpec, args map[string]string) (string, error)
 	return fmt.Sprintf(
 		`{"DataType":14,"Function":3,"Portname":"%s","TargetMAC":"%s","Newipaddress":"%s","Newsubnetmask":"%s"}`,
 		port, mac, ip, mask), nil
+}
+
+// === raw-send 专用 BodyBuilder ===
+//
+// rawSendBody 透传用户提供的 --data 字符串作为 NRC 帧 payload, 不做任何字段包装。
+// 校验: 必须非空 + 必须是合法 JSON (避免 typo 导致 C++ 端解析失败)。
+func rawSendBody(spec CommandSpec, args map[string]string) (string, error) {
+	data := args["data"]
+	if data == "" {
+		return "", fmt.Errorf("--data 不能为空")
+	}
+	if !json.Valid([]byte(data)) {
+		return "", fmt.Errorf("--data 不是合法 JSON")
+	}
+	return data, nil
+}
+
+// === config-set-idevice 专用 BodyBuilder (Step 9.1, Step 10.A 增强) ===
+//
+// configSetIDeviceBody 构造 SetIDevice 请求的 JSON body。
+//
+// C++ 端 SetIDevice 分支读取 root["IDevice"] 子对象, 包含三个字段:
+//   - Activate     bool  // 是否激活 iDevice
+//   - InputLength  int   // 输入区段字节数 (范围 0-2048)
+//   - OutputLength int   // 输出区段字节数 (范围 0-2048)
+//
+// 用户提供的 --data 必须是合法 JSON object (含上述三字段), 与 device-list 响应中的 IDevice 字段对称。
+//
+// Step 10.A 增强: 委托给通用 configBodyBuilder 复用其校验逻辑 (必填字段 + InputLength/OutputLength 范围),
+// 同时复用其 SetIDevice 路由 (业务字段在顶层 IDevice, Function 仅含 Value)。
+func configSetIDeviceBody(spec CommandSpec, args map[string]string) (string, error) {
+	return configBodyBuilder(spec, args)
 }

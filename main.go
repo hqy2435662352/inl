@@ -19,7 +19,29 @@ var (
 	targetFlag string
 	formatFlag string
 	outputFlag string
+	retryFlag  int
 )
+
+// isDCPWriteClosedConnection 判断错误是否为写操作的已知 "控制器发完即关" 行为。
+//
+// 两种场景:
+//  1. DCP 写 (DataType=14 + Risk=Write): 帧发完控制器主动关连接, 不响应 JSON
+//  2. Compile (DataType=12 + Function="Compile"): 编译重启 PROFINET 协议栈, 必然关连接
+//
+// 其它 DataType=12 config 写 (SetPNDriver/AddPNDevice/...) 的 "closed" 意味着
+// 请求未到达 / 连接异常, **不**应误判为成功。
+func isDCPWriteClosedConnection(spec nrc.CommandSpec, err error) bool {
+	if err == nil {
+		return false
+	}
+	if spec.DataType == 14 && spec.Risk == nrc.RiskWrite && strings.Contains(err.Error(), "closed") {
+		return true
+	}
+	if spec.DataType == 12 && spec.Function == "Compile" && strings.Contains(err.Error(), "closed") {
+		return true
+	}
+	return false
+}
 
 func main() {
 	rootCmd := &cobra.Command{
@@ -36,12 +58,14 @@ func main() {
 	rootCmd.PersistentFlags().StringVar(&targetFlag, "target", "",
 		"工业 PC IP 地址 (必填)")
 	rootCmd.PersistentFlags().StringVar(&formatFlag, "format", "json",
-		"输出格式: json (默认) | table")
+		"输出格式: json (默认) | table | csv | ndjson")
 	rootCmd.PersistentFlags().StringVar(&outputFlag, "output", "",
 		"原始响应保存路径 (默认: ./<name>_response_<时间戳>.json)")
+	rootCmd.PersistentFlags().IntVar(&retryFlag, "retry", 0,
+		"DCP 命令重试次数 (0=默认 1 次; 网络抖动场景可设 3-5)")
 
 	for _, g := range []nrc.CommandGroup{
-		nrc.GroupInterface, nrc.GroupGsd, nrc.GroupDevice, nrc.GroupConfig, nrc.GroupTopology, nrc.GroupSchema,
+		nrc.GroupInterface, nrc.GroupGsd, nrc.GroupDevice, nrc.GroupConfig, nrc.GroupTopology, nrc.GroupSchema, nrc.GroupRaw,
 	} {
 		rootCmd.AddCommand(buildGroupCmd(g))
 	}
@@ -93,6 +117,11 @@ func buildGroupCmd(group nrc.CommandGroup) *cobra.Command {
 		short = "AI Agent 能力发现"
 		long = "列出所有可用命令的元数据 (纯客户端, 不连接工业 PC)。"
 		pureGroup = true
+	case nrc.GroupRaw:
+		use = "raw"
+		short = "透传原始 JSON 帧"
+		long = "直接发送任意 JSON payload 到工业 PC (兜底, 覆盖非标准命令)。"
+		pureGroup = false
 	}
 
 	annotations := map[string]string{}
@@ -112,6 +141,11 @@ func buildGroupCmd(group nrc.CommandGroup) *cobra.Command {
 			continue
 		}
 		groupCmd.AddCommand(buildSubCmd(spec))
+	}
+
+	// 注入特殊组合命令 (Step 9.4 — 不走 Registry, 走特殊路径)
+	if group == nrc.GroupDevice {
+		groupCmd.AddCommand(buildDeviceSetupCmd())
 	}
 
 	return groupCmd
@@ -139,8 +173,27 @@ func buildSubCmd(spec nrc.CommandSpec) *cobra.Command {
 			"预览请求帧 (不连接工业 PC, 不发送任何数据)")
 	}
 
+	// Step 10.A: config 写命令支持 --no-fetch 标志, 关闭 BodyBuilder 的自动 fetch。
+	// 仅对 Function 字段需要上下文依赖 (Function 在 DecentralDevice/PNDriver/IDevice 上操作)
+	// 的命令有意义, 即 set-driver/add-device/remove-device/set-device/add-module/
+	// remove-module/add-submodule/remove-submodule/shield/unshield (10 条)。
+	// 默认开启 fetch (与 field-reference §0.2 + step10 plan §2.3 一致)。
+	if spec.Group == nrc.GroupConfig && spec.Risk != nrc.RiskRead {
+		hasData := false
+		for _, a := range spec.Args {
+			if a.Name == "data" {
+				hasData = true
+				break
+			}
+		}
+		if hasData {
+			subCmd.Flags().Bool("no-fetch", false,
+				"禁用 BodyBuilder 自动 fetch 当前 topology (默认: 启用, 需 --target)")
+		}
+	}
+
 	// DCP 命令的参数注册: 根据 spec.Args 注册对应 String flag 并标记必填。
-	// 参数全集: interface / mac / name / ip / mask。
+	// 参数全集: interface / mac / name / ip / mask / data。
 	for _, arg := range spec.Args {
 		switch arg.Name {
 		case "interface":
@@ -153,6 +206,8 @@ func buildSubCmd(spec nrc.CommandSpec) *cobra.Command {
 			subCmd.Flags().String("ip", "", "新 IP 地址")
 		case "mask":
 			subCmd.Flags().String("mask", "", "新子网掩码")
+		case "data":
+			subCmd.Flags().String("data", "", "完整 JSON payload (config-* 与 raw-send 必填)")
 		}
 		if arg.Required {
 			_ = subCmd.MarkFlagRequired(arg.Name)
@@ -162,12 +217,39 @@ func buildSubCmd(spec nrc.CommandSpec) *cobra.Command {
 	return subCmd
 }
 
+// buildNRCClient 根据 retryFlag 构造 nrc.Client。
+//
+// retryFlag == 0 (默认): 使用 nrc.NewClient 的默认策略 (DCP 1 次重试)
+// retryFlag > 0: 用 nrc.NewReceivePolicy(retryFlag) 覆盖默认 receive policy
+//
+//	(Step 9.2 --retry flag)
+//	- retryFlag=3 表示总共尝试 4 次 (1 次 + 3 次重试)
+//	- 网络抖动场景下推荐 3-5 次
+func buildNRCClient(addr string) *nrc.Client {
+	if retryFlag > 0 {
+		return nrc.NewClient(addr, nrc.WithReceivePolicy(nrc.NewReceivePolicy(retryFlag)))
+	}
+	return nrc.NewClient(addr)
+}
+
 // collectDCPArgs 从 cmd flags 中提取 DCP 命令的参数集合, 供 nrc.RequestBody 构造请求体。
 // 仅包含已被注册的 flag (通过 spec.Args 注册), 未注册的 flag 跳过。
 // 返回的 map 始终非 nil, 即使为空。
+//
+// raw-send 命令使用 "data" 参数 (非 DCP), 也由本函数一并提取 (其他 DCP 命令不会注册 data flag, 自动跳过)。
+// config-* 写命令 (Step 10.A) 使用 "data" 参数; --no-fetch 标志映射为 args["no-fetch"]="true" 字符串。
+// --target 持久标志映射为 args["target"], 供 BodyBuilder 自动 fetch 使用。
 func collectDCPArgs(cmd *cobra.Command) map[string]string {
 	args := make(map[string]string)
-	for _, name := range []string{"interface", "mac", "name", "ip", "mask"} {
+	// --target 持久标志 (在 rootCmd 上注册, 通过 PersistentFlags 也能从 subCmd 取到)
+	args["target"] = targetFlag
+	// bool 标志: --no-fetch
+	if cmd.Flags().Lookup("no-fetch") != nil {
+		if v, _ := cmd.Flags().GetBool("no-fetch"); v {
+			args["no-fetch"] = "true"
+		}
+	}
+	for _, name := range []string{"interface", "mac", "name", "ip", "mask", "data"} {
 		if cmd.Flags().Lookup(name) == nil {
 			continue
 		}
@@ -244,12 +326,20 @@ func runNrcCommand(name string) func(*cobra.Command, []string) error {
 		}
 		fmt.Fprintf(os.Stderr, "🔌 连接 %s ...\n", addr)
 
-		client := nrc.NewClient(addr)
+		client := buildNRCClient(addr)
 		if err := client.Connect(); err != nil {
 			return fmt.Errorf("连接失败: %w", err)
 		}
 		defer client.Close()
+		// 每次命令执行后清除预取拓扑缓存 (避免跨命令泄漏)
+		defer nrc.ClearPreFetchedTopology()
 		fmt.Fprintln(os.Stderr, "  ✓ 已连接")
+
+		// 预取 topology: 用当前连接而非另建, 避免双连接导致 C++ 端关闭原有连接。
+		// configBodyBuilder 会优先使用此缓存, 不再自行 fetch。
+		if spec.Group == nrc.GroupConfig && spec.Risk != nrc.RiskRead {
+			nrc.PreFetchTopology(client)
+		}
 
 		body, err := nrc.RequestBody(spec, collectDCPArgs(cmd))
 		if err != nil {
@@ -260,9 +350,17 @@ func runNrcCommand(name string) func(*cobra.Command, []string) error {
 
 		respCmd, data, err := client.SendReceiveFiltered(spec.Code, body, spec.DataType, nrc.ExpectedResponseCode(spec))
 		if err != nil {
-			// DCP 写操作 (DataType=14, Function=2/3) 无 JSON 响应,
-			// 控制器发完 DCP 帧后直接关连接 → 视为成功, stdout 输出 Envelope (data: null)。
-			if spec.Risk == nrc.RiskWrite && strings.Contains(err.Error(), "closed") {
+			// ⚠️ 2026-06-04 v3 bug fix (Step 10.B 实机发现):
+			//
+			// 旧版 "RiskWrite + closed" 启发式过宽 — 把所有 DataType=12 config 写命令
+			// (SetPNDriver/AddPNDevice/...) 也吞掉了 "closed" 错误, 误判为成功, 但
+			// C++ 端 DataType=12 实际会发响应, "closed" 意味着请求未到达 / 连接异常,
+			// 不能再视为成功。
+			//
+			// "closed" 启发式应**仅**用于 DCP 写操作 (DataType=14, Function=2/3) —
+			// DCP 帧发完后控制器主动关连接, **不**响应 JSON。其它 DataType 关闭错误需
+			// 显式报告, 让用户/AI 能定位问题。
+			if isDCPWriteClosedConnection(spec, err) {
 				notice := map[string]interface{}{
 					"command":     spec.Name,
 					"data_type":   spec.DataType,
@@ -308,6 +406,49 @@ func runNrcCommand(name string) func(*cobra.Command, []string) error {
 			"data_type":  spec.DataType,
 			"elapsed_ms": time.Since(start).Milliseconds(),
 		}
+
+		// === --format table 分支 (Step 8): 表格输出到 stdout, 不走 Envelope ===
+		// table 是人类看的, 不混入 Envelope, 避免破坏 AI pipe 链。
+		// 无数组时 (如 device list 的 CallBackJson) 回退 Envelope, stderr 警告。
+		if formatFlag == "table" {
+			cols, rows, terr := output.ExtractTableRows(data)
+			if terr != nil || len(cols) == 0 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "⚠️  --format table 不适用此命令, 回退 JSON 输出")
+				if err := output.WriteSuccess(cmd.OutOrStdout(), data, notice); err != nil {
+					return fmt.Errorf("信封构造失败: %w", err)
+				}
+				return nil
+			}
+			if err := output.FormatTable(cmd.OutOrStdout(), cols, rows); err != nil {
+				return fmt.Errorf("表格渲染失败: %w", err)
+			}
+			return nil
+		}
+
+		// === --format csv / ndjson 分支 (Step 9.4): 结构化输出, 适合 Excel / jq 处理 ===
+		// 无数组时回退 Envelope + stderr 警告, 与 table 一致语义。
+		if formatFlag == "csv" || formatFlag == "ndjson" {
+			cols, rows, terr := output.ExtractTableRows(data)
+			if terr != nil || len(cols) == 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"⚠️  --format %s 不适用此命令, 回退 JSON 输出\n", formatFlag)
+				if err := output.WriteSuccess(cmd.OutOrStdout(), data, notice); err != nil {
+					return fmt.Errorf("信封构造失败: %w", err)
+				}
+				return nil
+			}
+			if formatFlag == "csv" {
+				if err := output.FormatCSV(cmd.OutOrStdout(), cols, rows); err != nil {
+					return fmt.Errorf("CSV 渲染失败: %w", err)
+				}
+			} else {
+				if err := output.FormatNDJSON(cmd.OutOrStdout(), cols, rows); err != nil {
+					return fmt.Errorf("NDJSON 渲染失败: %w", err)
+				}
+			}
+			return nil
+		}
+
 		if err := output.WriteSuccess(cmd.OutOrStdout(), data, notice); err != nil {
 			return fmt.Errorf("信封构造失败: %w", err)
 		}
@@ -425,6 +566,201 @@ func schemaCommandCount() int {
 		}
 	}
 	return n
+}
+
+// === device setup 组合命令 (Step 9.4) ===
+//
+// 组合 device setup-name + device setup-ip + topology scan 三个子命令,
+// 一次执行完成 DCP 设备的发现-命名-配 IP-验证闭环。
+//
+// 与单命令的关系:
+//   - `inl device setup-name` 仅设名称
+//   - `inl device setup-ip`   仅设 IP
+//   - `inl device setup`      一次完成上述两步 + topology scan 验证
+//
+// 注意: 组合命令不走 Registry, 走特殊路径, 因为它执行多个 sub-command。
+
+// buildDeviceSetupCmd 构造 `inl device setup` 子命令 (Step 9.4)。
+func buildDeviceSetupCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "setup",
+		Short: "一键设置 DCP 设备 (名称+IP+验证, 组合 device setup-name + device setup-ip + topology scan)",
+		Long: `组合 device setup-name + device setup-ip + topology scan 三个子命令,
+一次完成 DCP 设备的发现-命名-配 IP-验证闭环。
+
+DCP 写操作无 JSON 响应, 控制器发完即关连接。本命令通过 topology scan
+验证设备是否被正确发现, 取代手动 scan 步骤。
+
+示例:
+  inl --target 192.168.3.15 device setup \
+      --interface enp4s0 \
+      --mac 00:11:22:33:44:55 \
+      --name heron-weld \
+      --ip 192.168.2.10 \
+      --mask 255.255.255.0 \
+      --yes`,
+		Annotations: map[string]string{
+			nrc.AnnotationRisk: string(nrc.RiskWrite), // 顶层 Risk 是 write (含 setup-name/setup-ip)
+		},
+		Args: cobra.NoArgs,
+		RunE: runDeviceSetup,
+	}
+	cmd.Flags().String("interface", "", "DCP 操作端口名 (如 enp4s0)")
+	cmd.Flags().String("mac", "", "目标设备 MAC 地址 (格式 XX:XX:XX:XX:XX:XX)")
+	cmd.Flags().String("name", "", "新设备名称 (必填)")
+	cmd.Flags().String("ip", "", "新 IP 地址 (可选, 不传则只设名称)")
+	cmd.Flags().String("mask", "", "新子网掩码 (与 --ip 配套)")
+	cmd.Flags().Bool("yes", false, "确认执行 write 操作 (必需)")
+	_ = cmd.MarkFlagRequired("interface")
+	_ = cmd.MarkFlagRequired("mac")
+	_ = cmd.MarkFlagRequired("name")
+	return cmd
+}
+
+// runDeviceSetup 实际执行 device setup 组合命令 (Step 9.4)。
+//
+// 步骤:
+//  1. 解析与验证 flags
+//  2. 顺序执行:
+//     a. device-setup-name (设名称)
+//     b. device-setup-ip   (设 IP + mask, 若提供)
+//     c. topology-scan     (验证设备已发现)
+//  3. 报告最终状态
+//
+// 错误处理: 任一步骤失败立即返回, 后续步骤不执行。
+// --yes 必需 (Risk=write)。
+func runDeviceSetup(cmd *cobra.Command, _ []string) error {
+	ifname, _ := cmd.Flags().GetString("interface")
+	mac, _ := cmd.Flags().GetString("mac")
+	name, _ := cmd.Flags().GetString("name")
+	ip, _ := cmd.Flags().GetString("ip")
+	mask, _ := cmd.Flags().GetString("mask")
+
+	if ifname == "" || mac == "" || name == "" {
+		return &output.Error{
+			Type:    "validation",
+			Code:    "missing_args",
+			Message: "--interface, --mac, --name 都不能为空",
+		}
+	}
+	if ip != "" && mask == "" {
+		return &output.Error{
+			Type:    "validation",
+			Code:    "missing_mask",
+			Message: "提供 --ip 时必须同时提供 --mask",
+		}
+	}
+	if targetFlag == "" {
+		return &output.Error{
+			Type:    "validation",
+			Code:    "target_required",
+			Message: "--target 不能为空",
+			Hint:    "请用 --target 192.168.x.x 指定工业 PC IP",
+		}
+	}
+
+	yesFlag, _ := cmd.Flags().GetBool("yes")
+	if !yesFlag {
+		return output.YesRequired("device-setup")
+	}
+
+	// Step 1: device setup-name
+	fmt.Fprintln(cmd.ErrOrStderr(), "📝 Step 1/3: 设置设备名称...")
+	if err := executeSetupSubCommand(cmd, "device-setup-name", map[string]string{
+		"interface": ifname,
+		"mac":       mac,
+		"name":      name,
+	}); err != nil {
+		return fmt.Errorf("setup-name 失败: %w", err)
+	}
+
+	// Step 2: device setup-ip (若提供 --ip)
+	if ip != "" {
+		fmt.Fprintln(cmd.ErrOrStderr(), "🌐 Step 2/3: 设置设备 IP...")
+		if err := executeSetupSubCommand(cmd, "device-setup-ip", map[string]string{
+			"interface": ifname,
+			"mac":       mac,
+			"ip":        ip,
+			"mask":      mask,
+		}); err != nil {
+			return fmt.Errorf("setup-ip 失败: %w", err)
+		}
+	} else {
+		fmt.Fprintln(cmd.ErrOrStderr(), "⏭️  Step 2/3: 跳过 IP 设置 (未提供 --ip)")
+	}
+
+	// Step 3: topology scan (验证)
+	fmt.Fprintln(cmd.ErrOrStderr(), "🔍 Step 3/3: 验证设备可见 (topology scan)...")
+	if err := executeSetupSubCommand(cmd, "topology-scan", map[string]string{
+		"interface": ifname,
+	}); err != nil {
+		return fmt.Errorf("topology-scan 验证失败: %w", err)
+	}
+
+	fmt.Fprintln(cmd.ErrOrStderr(), "✅ setup 完成 (3/3 子命令执行成功)")
+	return nil
+}
+
+// executeSetupSubCommand 执行单个 setup 子命令, 输出到 cmd.ErrOrStderr。
+//
+// 与 runNrcCommand 的区别:
+//   - 不走 Cobra flag 解析 (直接传 args map)
+//   - 不发 Envelope (只 stderr 报告成功/失败)
+//   - DCP 写无响应处理: 视为成功
+//   - topology scan 输出: 写到 stdout (供 AI 消费)
+func executeSetupSubCommand(cmd *cobra.Command, specName string, args map[string]string) error {
+	spec, ok := nrc.LookupByName(specName)
+	if !ok {
+		return fmt.Errorf("未注册命令: %s", specName)
+	}
+
+	addr := targetFlag
+	if !strings.Contains(addr, ":") {
+		addr += ":6000"
+	}
+
+	body, err := nrc.RequestBody(spec, args)
+	if err != nil {
+		return fmt.Errorf("构造请求体失败: %w", err)
+	}
+
+	client := buildNRCClient(addr)
+	if err := client.Connect(); err != nil {
+		return fmt.Errorf("连接失败: %w", err)
+	}
+	defer client.Close()
+
+	respCmd, data, err := client.SendReceiveFiltered(spec.Code, body, spec.DataType, nrc.ExpectedResponseCode(spec))
+	if err != nil {
+		// ⚠️ 2026-06-04 v3 启发式收紧 (Step 10.B 维护性修复, 与 runNrcCommand 对齐):
+		//
+		// "closed" 启发式**仅**对 DCP 写操作 (DataType=14, Function=2/3) 视为成功 —
+		// DCP 帧发完后控制器主动关连接, **不**响应 JSON。其它 DataType (如 DataType=12
+		// config 写) 出现 "closed" 错误意味着请求未到达 / 连接异常, **不**应误判为成功。
+		//
+		// 当前 executeSetupSubCommand 只被 device-setup-name/ip (DataType=14, Risk=Write)
+		// 和 topology-scan (DataType=14, Risk=Read) 调用, 显式加 DataType=14 守卫可
+		// 防止未来扩展时把 DataType=12 Risk=Write 命令误吞。
+		if isDCPWriteClosedConnection(spec, err) {
+			fmt.Fprintf(cmd.ErrOrStderr(), "  ✓ %s 已发送 (无 JSON 响应, 控制器发完即关)\n", specName)
+			return nil
+		}
+		return fmt.Errorf("通信失败: %w", err)
+	}
+
+	expected := nrc.ExpectedResponseCode(spec)
+	if respCmd != expected {
+		return fmt.Errorf("意外响应命令字: 0x%04X (期望: 0x%04X)", respCmd, expected)
+	}
+
+	// topology-scan 响应写到 stdout (AI 消费)
+	// setup-name/setup-ip 已在前面 closed 分支处理
+	if specName == "topology-scan" {
+		cmd.OutOrStdout().Write(data)
+		cmd.OutOrStdout().Write([]byte("\n"))
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "  ✓ %s 成功\n", specName)
+	return nil
 }
 
 // schemaGroupList 返回 Registry 中去重并排序的 group 名称列表。
