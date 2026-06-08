@@ -1,0 +1,58 @@
+name: npm-publish
+
+# GitHub Actions — npm 平台包发布 (Step 9.3)
+#
+# 触发条件: GitHub Release published
+#   - 依赖 release.yml 工作流先创建 Release
+#   - 监听 release: published 事件
+#
+# 流程: 在 matrix 中对 7 个 npm 包 (1 入口 + 6 平台子包) 依次执行
+#       npm ci → npm pack → npm publish
+#
+# 所需 Secret:
+#   - NPM_TOKEN — npmjs.com Automation Token (在 npm user → Access Tokens 创建)
+#   - 或配置 npm Trusted Publishing (推荐, 免 Token)
+#
+# 注意: 本工作流是手动触发的备用渠道 — 主推 GitHub Release (二进制),
+#       npm 平台子包用于 Node.js 生态和 AI Agent 工具链集成。
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:        # 允许手动触发
+
+permissions:
+  contents: read
+  id-token: write           # npm Trusted Publishing
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg:
+          - inl-cli
+          - inl-cli-linux-x64
+          - inl-cli-linux-arm64
+          - inl-cli-darwin-x64
+          - inl-cli-darwin-arm64
+          - inl-cli-win32-x64
+          - inl-cli-win32-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Install dependencies
+        run: npm install
+        working-directory: npm/${{ matrix.pkg }}
+      - name: Pack tarball
+        run: npm pack
+        working-directory: npm/${{ matrix.pkg }}
+      - name: Publish
+        run: npm publish --access public
+        working-directory: npm/${{ matrix.pkg }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

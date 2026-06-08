@@ -1,0 +1,17 @@
+{
+  "name": "@inl/cli-darwin-x64",
+  "version": "0.1.0",
+  "description": "inl CLI binary for macOS x64 / Intel (PROFINET NRC protocol)",
+  "main": "index.js",
+  "license": "MIT",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "index.js",
+    "bin/inl"
+  ]
+}

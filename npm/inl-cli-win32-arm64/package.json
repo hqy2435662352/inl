@@ -1,0 +1,17 @@
+{
+  "name": "@inl/cli-win32-arm64",
+  "version": "0.1.0",
+  "description": "inl CLI binary for Windows arm64 (PROFINET NRC protocol)",
+  "main": "index.js",
+  "license": "MIT",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "index.js",
+    "bin/inl.exe"
+  ]
+}

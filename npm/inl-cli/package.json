@@ -1,0 +1,32 @@
+{
+  "name": "inl-cli",
+  "version": "0.1.0",
+  "description": "Industrial Netline CLI (NRC protocol) - AI-native PROFINET configuration tool",
+  "bin": {
+    "inl": "./bin/inl.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "license": "MIT",
+  "repository": "github:hqy2435662352/inl",
+  "homepage": "https://github.com/hqy2435662352/inl",
+  "keywords": [
+    "profinet",
+    "industrial",
+    "nrc",
+    "cli",
+    "ai-agent"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "@inl/cli-linux-x64": "^0.1.0",
+    "@inl/cli-linux-arm64": "^0.1.0",
+    "@inl/cli-darwin-x64": "^0.1.0",
+    "@inl/cli-darwin-arm64": "^0.1.0",
+    "@inl/cli-win32-x64": "^0.1.0",
+    "@inl/cli-win32-arm64": "^0.1.0"
+  }
+}

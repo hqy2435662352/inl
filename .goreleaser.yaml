@@ -1,0 +1,73 @@
+version: 2
+
+# GoReleaser 配置文件 — 跨平台二进制分发 (Step 9.3)
+#
+# 文档: https://goreleaser.com/quick-start/
+# 本配置:
+#   - 编译 6 平台 × 2 格式 (tar.gz + zip) 的 inl 二进制
+#   - sha256 checksums
+#   - 自动生成 GitHub Release + CHANGELOG
+#   - 不包含 npm 发布 (npm-publish.yml 单独工作流)
+
+before:
+  hooks:
+    - go mod tidy
+    - go vet ./...
+    - go test ./...
+
+builds:
+  - id: inl
+    main: .
+    binary: inl
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    flags:
+      - -trimpath
+      - -ldflags=-s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+archives:
+  - id: inl-archive
+    formats:
+      - tar.gz
+      - zip
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ .Tag }}-next"
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^style:'
+      - '^refactor:'
+
+release:
+  github:
+    owner: hqy2435662352
+    name: inl
+  prerelease: auto
+  draft: false

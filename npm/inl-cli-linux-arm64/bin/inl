@@ -1,0 +1,7 @@
+PLACEHOLDER: actual inl binary for linux-arm64 will be placed here by goreleaser/npm-publish workflow.
+This file is NOT executable — it will be replaced by the Go binary at release time.
+
+To build locally:
+  GOOS=linux GOARCH=arm64 go build -o npm/inl-cli-linux-arm64/bin/inl .
+
+To verify: after building, `chmod +x` and `./bin/inl --version`.
