@@ -50,6 +50,8 @@ Phase 1 ──→ Phase 2 ──→ Phase 3 ──→ Phase 4 ──→ Phase 5 
 └────────── 本 Skill 负责 ──────────┘    └── write Skill ──┘    └─ 本 Skill ──┘
 ```
 
+> **例外**: `config shield` 和 `config unshield` 虽然是 config 命令组，但**运行时生效**（不走 compile 链路），可直接在 Phase 6 执行无需 Phase 7。响应特殊（`Function.Value` 返回 bool 而非字符串），AI 需按 `ShieldDeviceResponse` 解析。
+
 ---
 
 ## Phase 1：环境评估
@@ -169,7 +171,13 @@ DiscoveredDevices:
 
 **目标**: 对比"当前状态"与"用户期望", 生成 `ChangePlan`。
 
-### Step 3.0: 意图确认
+### Step 3.0: Schema 发现 (推荐)
+
+构造 `ChangePlan.payload` 前,**建议**调用 `inl schema list`（纯客户端命令,无需 `--target`,不连工业 PC）,从返回的 `fields` 字段直接获取目标命令接受的 JSON 字段列表（name / type / required / description / example）,避免凭记忆拼凑字段名。
+
+> `inl schema list` 的数据源是 inl 二进制自身编译的 Registry,不是工业 PC 状态——Agent 可在无网络连接时使用。
+
+### Step 3.1: 意图确认
 
 在生成 ChangePlan 前,**必须**评估用户意图是否明确。模糊时禁止猜测,逐条澄清 (每次最多 2 个问题):
 
@@ -243,7 +251,7 @@ DiscoveredDevices:
 Phase 4 安全备份 ──→ SCP 备份 networktopology.json (remove-*/compile 强制备份)
 Phase 5 预检确认 ──→ 逐条 config * --dry-run, 校验 DryRunFrame
 Phase 6 配置写入 ──→ config * --yes 依次执行
-Phase 7.3 DCP 分配 ──→ 对在线设备 device setup-name/ip 推送参数
+Phase 7.3 DCP 分配 ──→ 对在线设备 `device setup-name/ip` 推送参数（**无 JSON 响应**, 写后需 `device list` 验证, 详见 write SKILL §DCP）
 Phase 7.4 编译激活 ──→ config compile --yes (高危, 需人工确认)
 ```
 
@@ -265,6 +273,8 @@ inl --target <IP> device list           # 配置中拓扑 (对比基准)
 ### 对比校验项
 
 > `device list` 与 `device list-active` 顶层结构一致 (IDevice + PNDriver + DecentralDevice[]), 直接逐字段对比。
+>
+> ⚠️ 如果配网过程中执行了 DCP 写命令（`device setup-name/ip`），Phase 8 的 `device list` 既是配置验证工具，也是 DCP 写操作的**唯一确认手段**（DCP 命令无 JSON 响应）。
 
 | 校验项 | 配置源 | 激活源 | 通过条件 |
 |--------|--------|--------|---------|
@@ -327,7 +337,7 @@ INIT → ASSESSING → DISCOVERING → CLARIFYING → PLANNING → REVIEWING →
 | `BACKING_UP` | 提示 SCP 命令, 等待用户确认 | 备份确认 |
 | `PRECHECKING` | 逐条 config * --dry-run (委托 write) | 全部通过 |
 | `WRITING` | config * --yes (委托 write) | 全部写入 |
-| `DCP_ASSIGNING` | device setup-name/ip 推送在线设备参数 | 完成或跳过 |
+| `DCP_ASSIGNING` | `device setup-name/ip` 推送在线设备参数（无 JSON 响应, 详见 write SKILL §DCP） | 完成或跳过 |
 | `COMPILING` | config compile --yes (委托 write, 高危确认) | compile 返回 |
 | `VERIFYING` | device list-active ↔ device list 比对 | 验证通过/失败 |
 | `COMPLETE` | 配网成功 | 终端 |

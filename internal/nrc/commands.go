@@ -43,9 +43,20 @@ const (
 // ArgumentSpec 描述命令的位置参数。
 // MVP 阶段写命令留空数组。
 type ArgumentSpec struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Required    bool   `json:"required"`
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Required    bool        `json:"required"`
+	Fields      []FieldSpec `json:"fields,omitempty"` // Step 11: --data JSON 子字段元数据
+}
+
+// FieldSpec 描述 --data JSON 内部的一个子字段。
+// 仅当 ArgumentSpec.Name == "data" 时使用；DCP 参数（interface/mac/name 等）不使用。
+type FieldSpec struct {
+	Name        string `json:"name"`              // 字段名，如 "RefGSD"
+	Type        string `json:"type"`              // "string" | "int" | "bool" | "object"
+	Description string `json:"description"`       // 含义说明
+	Required    bool   `json:"required"`          // 在 --data JSON 内是否必填
+	Example     string `json:"example,omitempty"` // 示例值（可选）
 }
 
 // ResponseParser 返回响应 JSON 反序列化的目标类型。
@@ -88,7 +99,7 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    13,
 		Direction:   DirectionRequest,
-		Description: "列出工业 PC 上所有 GSDML 设备驱动",
+		Description: "列出工业 PC 上安装的设备GSDML文件数据",
 		Risk:        RiskRead,
 		Response:    nil,
 		Function:    "",
@@ -101,7 +112,7 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "列出所有已配置 PROFINET 设备 (网络配置视角)",
+		Description: "列出配置中/未编译的网络拓扑数据 (网络配置视角)",
 		Risk:        RiskRead,
 		Response:    nil,
 		Function:    "CallBackJson",
@@ -114,7 +125,7 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "列出当前已激活的 PROFINET 设备 (运行时视角)",
+		Description: "列出当前已激活/编译成功的网络拓扑数据 (运行时视角)",
 		Risk:        RiskRead,
 		Response:    nil,
 		Function:    "CallBackActivatedJson",
@@ -127,7 +138,7 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "获取当前活动运行的设备 (焊机) 状态",
+		Description: "获取当前已激活的从站设备(不包括PN Driver和i-Device)的连接状态 (运行时视角)",
 		Risk:        RiskRead,
 		Response:    nil,
 		Function:    "GetActRun",
@@ -166,14 +177,21 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "设置 PROFINET 控制器 (PN Driver) 参数 (DeviceName/IPAddress/SubnetMask/SetInTheProject)",
+		Description: "设置配置态中 PROFINET 主站 (PN Driver即机器人本身) 的参数 (DeviceName/IPAddress/SubnetMask/SetInTheProject; 注意: config 只改配置态 networktopology.json, 不改实际设备参数)",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "SetPNDriver",
 		Group:       GroupConfig,
-		Args: []ArgumentSpec{
-			{Name: "data", Description: "PNDriver JSON (含 DeviceName/IPAddress/SubnetMask/SetInTheProject)", Required: true},
-		},
+		Args: []ArgumentSpec{{
+			Name: "data", Required: true,
+			Description: "PNDriver 参数 JSON（业务字段在顶层 PNDriver 对象）",
+			Fields: []FieldSpec{
+				{Name: "DeviceName", Type: "string", Required: true, Description: "PROFINET 主站设备名称"},
+				{Name: "IPAddress", Type: "string", Required: true, Description: "主站 IP 地址"},
+				{Name: "SubnetMask", Type: "string", Required: true, Description: "子网掩码"},
+				{Name: "SetInTheProject", Type: "bool", Required: false, Description: "参数在项目中设置（默认 true，当false时其余3个参数传入不生效）"},
+			},
+		}},
 		BodyBuilder: configSetDriverBody,
 	},
 	{
@@ -181,14 +199,19 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "添加一个 PROFINET 设备到配置 (提供 RefGSD/DAP_ID, 其他字段 C++ 自动生成)",
+		Description: "添加一个 PROFINET 设备到配置中/未编译的网络拓扑中 (提供 RefGSD/DAP_ID, 其他字段 C++ 自动生成)",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "AddPNDevice",
 		Group:       GroupConfig,
-		Args: []ArgumentSpec{
-			{Name: "data", Description: "Function JSON (含 RefGSD/DAP_ID)", Required: true},
-		},
+		Args: []ArgumentSpec{{
+			Name: "data", Required: true,
+			Description: "添加设备的业务字段 JSON（Function 对象下）",
+			Fields: []FieldSpec{
+				{Name: "RefGSD", Type: "string", Required: true, Description: "GSDML 文件名", Example: "GSDML-V2.4-HERON-12345678.xml"},
+				{Name: "DAP_ID", Type: "string", Required: true, Description: "设备接口描述", Example: "DAP"},
+			},
+		}},
 		BodyBuilder: configAddDeviceBody,
 	},
 	{
@@ -196,14 +219,19 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "从配置中卸载一个 PROFINET 设备 (1-based SetPNDeviceNum 索引)",
+		Description: "从配置中/未编译的网络拓扑中卸载一个 PROFINET 设备",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "UninstallPNDevice",
 		Group:       GroupConfig,
-		Args: []ArgumentSpec{
-			{Name: "data", Description: "Function JSON (含 SetPNDeviceNum)", Required: true},
-		},
+		Args: []ArgumentSpec{{
+			Name: "data", Required: true,
+			Description: "卸载设备的索引 JSON（Function 下）",
+			Fields: []FieldSpec{
+				{Name: "SetPNDeviceNum", Type: "int", Required: true,
+					Description: "目标设备索引号(1-based 索引，对应 device-list 中的DecentralDevice[] 的0-based索引 , 即传入1就是卸载DecentralDevice[0])"},
+			},
+		}},
 		BodyBuilder: configRemoveDeviceBody,
 	},
 	{
@@ -211,14 +239,29 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "校验已存在 PROFINET 设备 (C++ 端 SetPNDevice 仅做编译前校验, 不直接改业务参数)",
+		Description: "设置配置中/未编译的网络拓扑中一个分散设备（DecentralDevice）的网络参数",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "SetPNDevice",
 		Group:       GroupConfig,
-		Args: []ArgumentSpec{
-			{Name: "data", Description: "Function JSON (含 SetPNDeviceNum)", Required: true},
-		},
+		Args: []ArgumentSpec{{
+			Name: "data", Required: true,
+			Description: "分散设备的网络参数",
+			Fields: []FieldSpec{
+				{Name: "SetPNDeviceNum", Type: "int", Required: true,
+					Description: "目标设备索引号(1-based 索引，对应 device-list 中的DecentralDevice[] 的0-based索引 , 即传入1就是设置DecentralDevice[0])"},
+				{Name: "DeviceName", Type: "string", Required: false,
+					Description: "设备名称（可选, 不传则保留原值）"},
+				{Name: "IPAddress", Type: "string", Required: false,
+					Description: "设备 IP 地址（可选, 不传则保留原值）"},
+				{Name: "SubnetMask", Type: "string", Required: false,
+					Description: "子网掩码（可选, 不传则保留原值）"},
+				{Name: "ReductionRatio", Type: "int", Required: false,
+					Description: "设备更新周期（可选, 不传则保留原值）"},
+				{Name: "SetInTheProject", Type: "bool", Required: false,
+					Description: "参数在项目中设置（默认 true，当false时DeviceName/IPAddress/SubnetMask传入不生效）"},
+			},
+		}},
 		BodyBuilder: configSetDeviceBody,
 	},
 	{
@@ -226,14 +269,19 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "向设备添加一个 Module (SetPNDeviceNum + ModuleID)",
+		Description: "向配置中/未编译的网络拓扑中一个分散设备添加一个 Module",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "AddModule",
 		Group:       GroupConfig,
-		Args: []ArgumentSpec{
-			{Name: "data", Description: "Function JSON (含 SetPNDeviceNum/ModuleID)", Required: true},
-		},
+		Args: []ArgumentSpec{{
+			Name: "data", Required: true,
+			Description: "添加模块的索引 JSON（Function 下）",
+			Fields: []FieldSpec{
+				{Name: "SetPNDeviceNum", Type: "int", Required: true, Description: "目标设备索引号(1-based 索引，对应 device-list 中的DecentralDevice[] 的0-based索引 , 即传入1就是添加到DecentralDevice[0])"},
+				{Name: "ModuleID", Type: "string", Required: true, Description: "模块 ID"},
+			},
+		}},
 		BodyBuilder: configAddModuleBody,
 	},
 	{
@@ -241,14 +289,19 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "从设备卸载一个 Module (SetPNDeviceNum + SetModuleSlot)",
+		Description: "从配置中/未编译的网络拓扑中一个分散设备卸载一个 Module",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "UninstallModule",
 		Group:       GroupConfig,
-		Args: []ArgumentSpec{
-			{Name: "data", Description: "Function JSON (含 SetPNDeviceNum/SetModuleSlot)", Required: true},
-		},
+		Args: []ArgumentSpec{{
+			Name: "data", Required: true,
+			Description: "移除模块的索引 JSON（Function 下）",
+			Fields: []FieldSpec{
+				{Name: "SetPNDeviceNum", Type: "int", Required: true, Description: "目标设备索引号(1-based 索引，对应 device-list 中的DecentralDevice[] 的0-based索引 , 即传入1就是移除DecentralDevice[0]的模块)"},
+				{Name: "SetModuleSlot", Type: "int", Required: true, Description: "目标模块插槽号(1-based 索引，对应 device-list 中的Module的Slot参数, 即传入1就是移除DecentralDevice槽号为1的模块)"},
+			},
+		}},
 		BodyBuilder: configRemoveModuleBody,
 	},
 	{
@@ -256,14 +309,20 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "向 Module 添加一个 Submodule (SetPNDeviceNum + ModuleID + SubmoduleID)",
+		Description: "向配置中/未编译的网络拓扑中一个分散设备的 Module 添加一个 Submodule",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "AddSubmodule",
 		Group:       GroupConfig,
-		Args: []ArgumentSpec{
-			{Name: "data", Description: "Function JSON (含 SetPNDeviceNum/ModuleID/SubmoduleID)", Required: true},
-		},
+		Args: []ArgumentSpec{{
+			Name: "data", Required: true,
+			Description: "添加子模块的索引 JSON（Function 下）",
+			Fields: []FieldSpec{
+				{Name: "SetPNDeviceNum", Type: "int", Required: true, Description: "目标设备索引号(1-based 索引，对应 device-list 中的DecentralDevice[] 的0-based索引 , 即传入1就是添加到DecentralDevice[0])"},
+				{Name: "ModuleID", Type: "string", Required: true, Description: "模块 ID"},
+				{Name: "SubmoduleID", Type: "string", Required: true, Description: "子模块 ID"},
+			},
+		}},
 		BodyBuilder: configAddSubmoduleBody,
 	},
 	{
@@ -271,14 +330,20 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "从 Module 卸载一个 Submodule (SetPNDeviceNum + SetModuleSlot + SetSubmoduleSlot)",
+		Description: "从配置中/未编译的网络拓扑中一个分散设备的 Module 卸载一个 Submodule",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "UninstallSubmodule",
 		Group:       GroupConfig,
-		Args: []ArgumentSpec{
-			{Name: "data", Description: "Function JSON (含 SetPNDeviceNum/SetModuleSlot/SetSubmoduleSlot)", Required: true},
-		},
+		Args: []ArgumentSpec{{
+			Name: "data", Required: true,
+			Description: "移除子模块的索引 JSON（Function 下）",
+			Fields: []FieldSpec{
+				{Name: "SetPNDeviceNum", Type: "int", Required: true, Description: "目标设备索引号(1-based 索引，对应 device-list 中的DecentralDevice[] 的0-based索引 , 即传入1就是移除DecentralDevice[0]的子模块)"},
+				{Name: "SetModuleSlot", Type: "int", Required: true, Description: "目标模块插槽号(1-based 索引，对应 device-list 中的Module的Slot参数, 即传入1就是移除DecentralDevice槽号为1的模块的子模块)"},
+				{Name: "SetSubmoduleSlot", Type: "int", Required: true, Description: "子模块插槽号（1-based）对应 device-list 中的Module的Submodules的Subslot参数，即传入1就是移除DecentralDevice的模块的子槽号为1的子模块"},
+			},
+		}},
 		BodyBuilder: configRemoveSubmoduleBody,
 	},
 	{
@@ -286,16 +351,21 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "屏蔽一个设备 (屏蔽后 PLC 不再访问该设备, 响应 Result 为 bool)",
+		Description: "屏蔽一个设备 (运行时生效: 屏蔽后机器人系统不再报出该设备的通信错误; 不走 compile, 响应特殊: Function.Value 返回 bool)",
 		Risk:        RiskWrite,
 		Response:    nil,
 		// 2026-06-04 v3: C++ 源常量拼写已纠正回 "ShieldDevice" (typo 修复提交 3d3cc3c7)
 		// 来源: io-controller/src/ioc/profinet_constants.h:82
 		Function: "ShieldDevice",
-		Group:   GroupConfig,
-		Args: []ArgumentSpec{
-			{Name: "data", Description: "ShieldDevice JSON (含 DeviceName)", Required: true},
-		},
+		Group:    GroupConfig,
+		Args: []ArgumentSpec{{
+			Name: "data", Required: true,
+			Description: "屏蔽设备的标识 JSON（Function 下）",
+			Fields: []FieldSpec{
+				{Name: "DeviceName", Type: "string", Required: true,
+					Description: "要屏蔽的设备名称（不是索引号）"},
+			},
+		}},
 		BodyBuilder: configShieldBody,
 	},
 	{
@@ -303,16 +373,21 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "取消屏蔽一个设备 (响应 Result 为 bool)",
+		Description: "取消屏蔽一个设备 (运行时生效: 取消屏蔽后机器人系统会监控该设备的通信错误; 不走 compile, 响应特殊: Function.Value 返回 bool)",
 		Risk:        RiskWrite,
 		Response:    nil,
 		// 2026-06-04 v3: C++ 源常量拼写已纠正回 "UNShieldDevice" (typo 修复提交 3d3cc3c7)
 		// 来源: io-controller/src/ioc/profinet_constants.h:83
 		Function: "UNShieldDevice",
-		Group:   GroupConfig,
-		Args: []ArgumentSpec{
-			{Name: "data", Description: "UNShieldDevice JSON (含 DeviceName)", Required: true},
-		},
+		Group:    GroupConfig,
+		Args: []ArgumentSpec{{
+			Name: "data", Required: true,
+			Description: "取消屏蔽的设备标识 JSON（Function 下）",
+			Fields: []FieldSpec{
+				{Name: "DeviceName", Type: "string", Required: true,
+					Description: "要取消屏蔽的设备名称"},
+			},
+		}},
 		BodyBuilder: configUnshieldBody,
 	},
 	{
@@ -333,14 +408,20 @@ var Registry = []CommandSpec{
 		Code:        0x9275,
 		DataType:    12,
 		Direction:   DirectionRequest,
-		Description: "设置 IDevice IO 长度参数 (Activate/InputLength/OutputLength)",
+		Description: "设置 IDevice 的参数 (Activate/InputLength/OutputLength)",
 		Risk:        RiskWrite,
 		Response:    nil,
 		Function:    "SetIDevice",
 		Group:       GroupConfig,
-		Args: []ArgumentSpec{
-			{Name: "data", Description: "IDevice JSON (含 Activate/InputLength/OutputLength)", Required: true},
-		},
+		Args: []ArgumentSpec{{
+			Name: "data", Required: true,
+			Description: "IDevice 参数 JSON（业务字段在顶层 IDevice 对象）",
+			Fields: []FieldSpec{
+				{Name: "Activate", Type: "bool", Required: true, Description: "是否激活 IDevice"},
+				{Name: "InputLength", Type: "int", Required: true, Description: "输入数据长度（字节）"},
+				{Name: "OutputLength", Type: "int", Required: true, Description: "输出数据长度（字节）"},
+			},
+		}},
 		BodyBuilder: configSetIDeviceBody,
 	},
 
@@ -370,7 +451,7 @@ var Registry = []CommandSpec{
 		Risk:        RiskRead,
 		Group:       GroupTopology,
 		Args: []ArgumentSpec{
-			{Name: "interface", Description: "DCP 扫描端口名 (如 enp4s0)", Required: true},
+			{Name: "interface", Description: "DCP 扫描端口名 (默认enp4s0或pnio)", Required: true},
 		},
 		BodyBuilder: topologyScanBody,
 	},
@@ -384,7 +465,7 @@ var Registry = []CommandSpec{
 		Risk:        RiskRead,
 		Group:       GroupGsd,
 		Args: []ArgumentSpec{
-			{Name: "interface", Description: "DCP 扫描端口名 (如 enp4s0)", Required: true},
+			{Name: "interface", Description: "DCP 扫描端口名 (默认enp4s0或pnio)", Required: true},
 		},
 		BodyBuilder: gsdMatchBody,
 	},
@@ -453,9 +534,11 @@ var Registry = []CommandSpec{
 		Response:    nil,
 		Function:    "",
 		Group:       GroupRaw,
-		Args: []ArgumentSpec{
-			{Name: "data", Description: "完整 JSON payload (必填)", Required: true},
-		},
+		Args: []ArgumentSpec{{
+			Name: "data", Required: true,
+			Description: "原始 NRC JSON payload（透传，无字段约束）",
+			// Fields 保持 nil — raw-send payload 是自由格式
+		}},
 		BodyBuilder: rawSendBody,
 	},
 }

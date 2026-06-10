@@ -18,6 +18,7 @@ metadata:
 
 AI Agent 收到下列任务时,应**强制**触发本 skill,并严格按 4 层流程执行(不可跳步):
 
+**PROFINET 配置写命令 (config 组, 共 12 条):**
 - "把工业 PC 上 PROFINET 主站 IP 改成 192.168.2.20" → `inl config set-driver`
 - "添加一个 OBARA 焊机到配置" → `inl config add-device`
 - "把焊机 X 屏蔽掉" → `inl config shield`
@@ -26,6 +27,10 @@ AI Agent 收到下列任务时,应**强制**触发本 skill,并严格按 4 层�
 - "删除设备 `<name>`" → `inl config remove-device`(强制备份)
 - "给焊机 X 加/删一个模块" → `inl config add-module` / `remove-module`(强制备份)
 - "修改 iDevice 主从通信长度" → `inl config set-idevice`
+
+**DCP 写命令 (device 组, 共 2 条):**
+- "把焊机 X 的名字改成 Y" → `inl device setup-name`
+- "把焊机 X 的 IP 改成 192.168.2.30" → `inl device setup-ip`
 
 ## 不适用场景
 
@@ -44,7 +49,7 @@ AI Agent 收到下列任务时,应**强制**触发本 skill,并严格按 4 层�
 
 1. ✅ **已读 [`../inl-shared/SKILL.md`](../inl-shared/SKILL.md)** — 理解 `--target` / `--yes` / `--dry-run` / Risk / 结构化错误码
 2. ✅ **已知 `--target` 工业 PC IP** — 例 `192.168.3.15`,自动加 `:6000`
-3. ✅ **已知要执行的 `inl config *` 命令及参数** — 命令名、Function.Value、Payload 字段已就绪
+3. ✅ **已知要执行的 inl 写命令及参数** — 命令名、参数（config 组需 Function.Value 和 Payload 字段，device 组需 MAC/Name/IP）
 4. ⚠️ **现场操作前必须备份 `networktopology.json`(Layer 2)** — 由用户在工业 PC 系统层完成,AI Agent 仅做"提示 + 拒绝继续"约束
 
 ---
@@ -56,6 +61,12 @@ AI Agent 收到下列任务时,应**强制**触发本 skill,并严格按 4 层�
 - **Layer 2 备份**:**本 skill 不实现自动备份**。4 命令(`remove-device` / `remove-module` / `remove-submodule` / `compile`)→ **AI 拒绝继续**,等用户报告"备份完成";其他 7 命令 → 提示但不强阻塞。
 - **Layer 3 确认**:write 类(11 命令中 11 个) → 缺 `--yes` AI **自动追加** 重试(`yes_required` 可重试);high-risk-write 类(`compile`) → AI **暂停**,等用户决策(`confirmation_required` 不可重试)。
 - **Layer 3.5 验证**:写后 5s `sleep` + `inl device list` 重读,与 pre_state 做 diff;diff 一致 → 成功报告;diff 不一致 → Layer 4。
+
+  **DCP 命令的验证特殊性:**
+  - `device setup-name` / `setup-ip` 是**无 JSON 响应**的命令(不同于 config 写命令有结构化 Envelope 响应)
+  - 因此 `device list` 验证对 DCP 命令是**唯一确认手段**, 不能跳过
+  - 验证时比对 DeviceName / IPAddress / SubnetMask 字段是否与预期一致
+  - 如 `device list` 仍显示旧值 → DCP 写操作实际失败, 直接走 Layer 4 回滚, 不重试(重试无意义)
 - **Layer 4 显式回滚**:**AI 列路径不执行**。路径 A = 反向 inl 命令(对称操作);路径 B = SCP 备份恢复 + 重新 `compile`(remove-*/compile)。等用户明确说"执行路径 X"再执行,执行后再走一次 Layer 3.5。
 
 ---
@@ -77,7 +88,30 @@ AI Agent 收到下列任务时,应**强制**触发本 skill,并严格按 4 层�
 | 11 | `config unshield` | Device.IsShielded=false | `write` | device list-active | 提示 | ✅ | A: shield(对称) |
 | 12 | **`config compile`** | **激活配置(重启控制器)** | **`high-risk-write`** | device list + list-active + --dry-run | **强制** | **❌ 禁止** | **B: 备份恢复 + 重新 compile** |
 
-> **强制备份 4 命令**占全部写命令的 33%。这些命令有**不可逆丢失**(remove-*)或**全局态激活**(compile)风险。
+> **强制备份 4 命令**占全部 config 写命令的 33%。这些命令有**不可逆丢失**(remove-*)或**全局态激活**(compile)风险。
+
+---
+
+## DCP 写命令专项
+
+DCP 写命令（`device setup-name`、`device setup-ip`）不走 config 组的 4 层安全流程（无 `--dry-run`、无 `--data` JSON），但遵循**简化版 3 步流程**：
+
+| # | 命令 | 改什么 | Risk | 预检读 | AI 自动 `--yes`? | 回滚 |
+|---|------|--------|------|--------|-------------------|------|
+| 1 | `device setup-name` | 设备名称 | `write` | device list（读当前名称） | ✅ | A: setup-name 改回旧名称 |
+| 2 | `device setup-ip` | 设备 IP/子网掩码 | `write` | device list（读当前 IP） | ✅ | A: setup-ip 设回旧 IP/掩码 |
+
+### 执行流程
+
+1. **Layer 1 预检**: 先读 `device list` 确认目标设备的当前 DeviceName / IPAddress / MAC
+2. **Layer 3 确认**: `--yes` AI 自动追加（同 config write 规则）
+3. **Layer 3.5 验证**: `sleep(5)` + `device list` 对比预期值（**无 JSON 响应，此为唯一确认手段**）
+
+### 注意事项
+
+- DCP 命令通过 MAC 地址定位设备，因此执行前需从 `device list` 或 `topology scan` 拿到目标设备的 MAC
+- 改名前确认新名称未被其他设备占用（通过 `device list` 检查）
+- 改 IP 前确认新 IP 未被占用且在同一子网内
 
 ---
 

@@ -311,8 +311,110 @@ func TestBuildSchemaJSON(t *testing.T) {
 	}
 }
 
-// 抑制 unused import 警告
-var _ = json.Marshal
+// === Step 11: --data JSON 子字段元数据 (fields) 单元测试 ===
+
+// TestSchemaList_Fields 验证 --data 命令的 args[0].fields 输出正确。
+func TestSchemaList_Fields(t *testing.T) {
+	data := buildSchemaJSON()
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("JSON 解析失败: %v", err)
+	}
+	commands, ok := parsed["commands"].([]interface{})
+	if !ok {
+		t.Fatalf("commands 字段类型错误: %T", parsed["commands"])
+	}
+
+	// 测试 config-add-device
+	var addDevice map[string]interface{}
+	for _, c := range commands {
+		m := c.(map[string]interface{})
+		if m["name"] == "config-add-device" {
+			addDevice = m
+			break
+		}
+	}
+	if addDevice == nil {
+		t.Fatal("找不到 config-add-device")
+	}
+
+	args := addDevice["args"].([]interface{})
+	if len(args) != 1 {
+		t.Fatalf("config-add-device args 长度 = %d, want 1", len(args))
+	}
+	dataArg := args[0].(map[string]interface{})
+	fields, ok := dataArg["fields"].([]interface{})
+	if !ok {
+		t.Fatalf("config-add-device args[0].fields 缺失或类型错误: %T", dataArg["fields"])
+	}
+	if len(fields) < 2 {
+		t.Fatalf("config-add-device fields 长度 = %d, 应至少含 RefGSD/DAP_ID", len(fields))
+	}
+
+	fieldNames := make(map[string]bool)
+	for _, f := range fields {
+		fm := f.(map[string]interface{})
+		fieldNames[fm["name"].(string)] = true
+	}
+	if !fieldNames["RefGSD"] {
+		t.Error("fields 应含 RefGSD")
+	}
+	if !fieldNames["DAP_ID"] {
+		t.Error("fields 应含 DAP_ID")
+	}
+
+	// 测试 topology-scan（DCP 结构化 flags）不输出 fields
+	for _, c := range commands {
+		m := c.(map[string]interface{})
+		if m["name"] == "topology-scan" {
+			scanArgs, ok := m["args"].([]interface{})
+			if !ok || len(scanArgs) == 0 {
+				continue
+			}
+			firstArg := scanArgs[0].(map[string]interface{})
+			if _, hasFields := firstArg["fields"]; hasFields {
+				t.Error("topology-scan.args[0] 不应含 fields 字段")
+			}
+		}
+	}
+
+	// 测试 raw-send（透传）不输出 fields
+	for _, c := range commands {
+		m := c.(map[string]interface{})
+		if m["name"] == "raw-send" {
+			rawArgs, ok := m["args"].([]interface{})
+			if !ok || len(rawArgs) == 0 {
+				continue
+			}
+			firstArg := rawArgs[0].(map[string]interface{})
+			if _, hasFields := firstArg["fields"]; hasFields {
+				t.Error("raw-send.args[0] 不应含 fields 字段（透传自由格式）")
+			}
+		}
+	}
+
+	// 测试 config-set-idevice 必填字段都存在
+	for _, c := range commands {
+		m := c.(map[string]interface{})
+		if m["name"] == "config-set-idevice" {
+			ideviceArgs := m["args"].([]interface{})
+			if len(ideviceArgs) != 1 {
+				t.Fatalf("config-set-idevice args 长度 = %d, want 1", len(ideviceArgs))
+			}
+			ideviceFields := ideviceArgs[0].(map[string]interface{})["fields"].([]interface{})
+			ideviceFieldNames := make(map[string]bool)
+			for _, f := range ideviceFields {
+				fm := f.(map[string]interface{})
+				ideviceFieldNames[fm["name"].(string)] = true
+			}
+			for _, want := range []string{"Activate", "InputLength", "OutputLength"} {
+				if !ideviceFieldNames[want] {
+					t.Errorf("config-set-idevice fields 应含 %s", want)
+				}
+			}
+		}
+	}
+}
 
 // === Step 10.B: "closed" 启发式收紧单元测试 (2026-06-04, 2026-06-08 扩展) ===
 //

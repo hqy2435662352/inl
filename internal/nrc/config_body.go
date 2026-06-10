@@ -3,6 +3,16 @@
 // 设计依据: docs/inl-config-field-reference.md (C++ 源码 PNConfigLibFileDesign.cpp 反推)。
 // 涵盖 11 条 config 写命令的请求体构造, 加上 1 个通用 configBodyBuilder 辅助。
 //
+// ⚠️ 核心概念: 大多数 config 命令操作的是"配置态" (networktopology.json),
+// 即机器人对外部网络拓扑的"猜想"蓝图, 与实际物理设备无关。
+// 要让配置态生效于实际设备, 需要:
+//  1. config compile (将配置态编译激活到运行态)
+//  2. device setup-name/ip (通过 DCP 协议直接修改实际设备参数)
+//
+// **例外**: ShieldDevice / UNShieldDevice 虽然是 config 命令组 (DataType=12),
+// 但效果作用于**运行时态**——直接告诉机器人控制器忽略/监控某设备的通信错误,
+// 不走 compile 链路, 响应特殊 (Function.Value 返回 bool 而非字符串)。
+//
 // 关键设计点 (来自 field-reference §0):
 //   - 字段路径模式 A: 大多数命令的业务字段在 networktopology["Function"] 下
 //   - 字段路径模式 B: SetPNDriver 的字段在 networktopology["PNDriver"] 顶层
@@ -72,6 +82,9 @@ func ClearPreFetchedTopology() {
 // 适用于 10 条 config 写命令 (除 compile / set-idevice 外), 差异由 spec.Function 决定:
 //   - 模式 A (Function 下): 业务字段直接平铺到 Function.<key>
 //   - 模式 B (顶层 PNDriver): 业务字段放到顶层 PNDriver 对象 (仅 SetPNDriver)
+//
+// **注意**: 所有 config 命令都只修改"配置态" (networktopology.json, 机器人对网络的猜想蓝图),
+// 不直接操作实际设备。要让变更生效于实际设备, 需 config compile + DCP 推送。
 //
 // 流程:
 //  1. 解析 --data 为业务字段 (e.g. {"RefGSD":"...","DAP_ID":"..."})
@@ -392,10 +405,14 @@ func configRemoveDeviceBody(spec CommandSpec, args map[string]string) (string, e
 	return configBodyBuilder(spec, args)
 }
 
-// configSetDeviceBody — SetPNDevice (模式 A, 1-based 索引, 仅校验不改参)。
+// configSetDeviceBody — SetPNDevice (模式 A, 1-based 索引, 修改配置态网络拓扑参数)。
 //
-// C++ 端 SetPNDevice (L1561) 主要做 onlycheck 模式的编译前校验, 不直接修改业务参数。
-// 修改设备 IP/Name 需用其他途径 (DCP setup-name/ip 或直接编辑 networktopology.json)。
+// C++ 端 SetPNDevice (L1561) 将用户传入的业务字段 (DeviceName/IPAddress/SubnetMask 等)
+// 写入 networktopology.json 中 DecentralDevice[SetPNDeviceNum-1] 对应的配置项。
+// 注意: config 命令只修改"配置态" (networktopology.json, 即机器人对网络的猜想蓝图),
+// 不会通过 DCP 协议修改实际设备的名称/IP。要让实际设备生效, 需要:
+//  1. config compile (将配置态编译激活到运行态)
+//  2. device setup-name/ip (通过 DCP 直接修改实际设备参数)
 func configSetDeviceBody(spec CommandSpec, args map[string]string) (string, error) {
 	return configBodyBuilder(spec, args)
 }

@@ -13,7 +13,7 @@ metadata:
 
 `inl` 是工业 PC 上 NRC Socket 协议的 CLI 调试工具,通过 TCP:6000 与运行 `nrc2.out` 的工业 PC 通信。场景工作流见 [`../inl-workflow-profinet-write/SKILL.md`](../inl-workflow-profinet-write/SKILL.md)。
 
-> **AI Agent 起步推荐**: 接到 inl 相关任务时,**先跑 `inl schema list`**(纯客户端, 无需 `--target`)获取所有 23 条 NRC 命令的元数据(name / group / use / description / risk / data_type / function / args 8 字段),再决定调用哪个子命令。schema list 输出的字段、枚举值、约束与 inl 二进制自身完全一致,无需另查文档。
+> **AI Agent 起步推荐**: 接到 inl 相关任务时,**先跑 `inl schema list`**(纯客户端, 无需 `--target`)获取所有 23 条 NRC 命令的元数据(name / group / use / description / risk / data_type / function / args / fields 9 字段),再决定调用哪个子命令。schema list 输出的字段、枚举值、约束与 inl 二进制自身完全一致,无需另查文档。
 
 ---
 
@@ -105,7 +105,37 @@ DryRunFrame JSON 示例:
 
 ---
 
-## 5. 输出约定
+## 5. 配置态 vs 运行态（核心概念）
+
+inl 的命令按作用域分为**两套不同系统**，理解这个区别是正确使用 inl 的前提：
+
+| 维度 | Config 命令（配置态） | DCP 命令（运行态） |
+|------|---------------------|-------------------|
+| 操作对象 | `networktopology.json`（机器人对外部网络的"猜想"蓝图） | 实际物理设备（通过网线直连） |
+| 影响范围 | 配置文件内的记录 | 设备本身的名称/IP/子网掩码 |
+| 响应 | 有 JSON Envelope（ok/data/error） | **无 JSON 响应**（`data: null`） |
+| 验证方式 | 直接读 `device list` 看配置态 | 必须跑 `device list` 或 `topology scan` 确认 |
+| 举例 | `config set-driver` / `config add-device` / `config shield` | `device setup-name` / `device setup-ip` |
+
+**典型工作流**：配置设备通常需要两步——先用 config 命令改配置态（蓝图），再用 DCP 命令把实际参数推送给物理设备。
+
+```bash
+# 第一步：改配置态（机器人的"猜想"）
+inl --target <IP> config set-device --data '{"SetPNDeviceNum":1,"DeviceName":"my-weld","IPAddress":"192.168.2.20"}'
+# 输出: Envelope JSON (ok/data)
+
+# 第二步：通过 DCP 把参数推给实际设备
+inl --target <IP> device setup-ip --interface enp4s0 --mac AA:BB:CC:DD:EE:FF --ip 192.168.2.20 --mask 255.255.255.0
+# 输出: Envelope with data: null, 需 device list 验证
+```
+
+**`--dry-run`** 只适用于 config 命令（修改配置态时做预检）；DCP 写命令无 `--dry-run`。
+
+> **例外**: `config shield` 和 `config unshield` 虽然是 config 命令组，但效果作用于**运行时态**——直接告诉机器人控制器忽略/监控某设备的通信错误，**不走 compile 链路**，响应特殊（`Function.Value` 返回 bool 而非字符串）。
+
+---
+
+## 6. 输出约定
 
 | 流 | 内容 |
 |---|------|
@@ -219,6 +249,26 @@ inl schema list
           {"name": "mac", "description": "目标 MAC", "required": true},
           {"name": "name", "description": "新设备名称", "required": true}
         ]
+      },
+      {
+        "name": "config-add-device",
+        "group": "config",
+        "use": "add-device",
+        "description": "添加一个 PROFINET 设备到配置中",
+        "risk": "write",
+        "data_type": 12,
+        "function": "AddPNDevice",
+        "args": [{
+          "name": "data",
+          "description": "添加设备的业务字段 JSON（Function 对象下）",
+          "required": true,
+          "fields": [
+            {"name": "RefGSD",     "type": "string", "description": "GSDML 文件名",                   "required": true,  "example": "GSDML-V2.4-HERON-12345678.xml"},
+            {"name": "DAP_ID",     "type": "string", "description": "设备接口 ID（16 进制）",         "required": true,  "example": "0x00000010"},
+            {"name": "DeviceName", "type": "string", "description": "设备名称（不传则 C++ 端自动生成）","required": false},
+            {"name": "IPAddress",  "type": "string", "description": "设备 IP 地址（不传则自动分配）", "required": false}
+          ]
+        }]
       }
       // ... 其余 21 条
     ],
@@ -248,11 +298,39 @@ inl schema list
 | `commands[].risk` | `read` / `write` / `high-risk-write` | 决定是否追加 `--yes` |
 | `commands[].data_type` | NRC DataType 字段 | 协议层校验 (无需 AI 关心) |
 | `commands[].function` | `Function.Value` 字符串或整数 | 协议层校验 (无需 AI 关心) |
-| `commands[].args[]` | 必填 DCP 参数列表 | 决定是否需追加 `--interface` 等 flag |
+| `commands[].args[]` | 参数列表 | 决定需追加哪些 flag |
+| `commands[].args[].fields` | `--data` JSON 的子字段列表 | `--data` 参数需包含哪些字段、类型、必填 |
 | `groups[].count` | 该 group 内命令数 | 概览 |
 | `groups[].risk` | group 最高风险等级 | 整组放行决策 (pure group 跳过 --yes) |
 | `_notice.command_count` | NRC 命令数(不含 schema 自身) | 与 docs 交叉验证 |
 | `_notice.group_count` | group 总数(含 schema 自身) | 同上 |
+
+**Step 11 起, AI 消费 `--data` JSON 的新方式**:
+
+收到 `schema list` 后, 对需要 `--data` 的命令 (如 `config-add-device`), **不再**靠自然语言解析 Description 字符串, 而是直接遍历 `args[].fields[]` 构造 JSON:
+
+```
+fields = schema.commands["config-add-device"].args[0].fields
+required_fields = fields.filter(f => f.required)
+# → [{name:"RefGSD", type:"string"}, {name:"DAP_ID", type:"string"}]
+optional_fields = fields.filter(f => !f.required)
+# → [{name:"DeviceName", type:"string"}, {name:"IPAddress", type:"string"}]
+
+# 构造 --data JSON
+--data '{"RefGSD":"<用户提供的GSDML文件名>","DAP_ID":"<用户提供的接口ID>"}'
+```
+
+每个 `field` 对象结构:
+
+| 子字段 | 含义 |
+|--------|------|
+| `name` | JSON 字段名 (如 `"RefGSD"`) |
+| `type` | `"string"` / `"int"` / `"bool"` / `"object"` |
+| `description` | 含义说明 |
+| `required` | 在 `--data` JSON 内是否必填 |
+| `example` | (可选) 示例值 |
+
+无 `--data` 的命令 (DCP 命令如 `topology-scan` / 读命令) 的 `args[].fields` 字段 **省略** (`omitempty`);透传命令 `raw-send` 因 payload 自由格式也不输出 `fields`。
 
 **为什么不需要 `--target`**:schema-list 读的是 inl **二进制自身**编译进去的 Registry,不是工业 PC 的状态。`init()` 对 `DataType=0 && Function==""` 的纯客户端命令跳过 DataType 唯一性检查,`runNrcCommand` 在 `spec.Group == GroupSchema` 时短路,直接返回 JSON,不走 TCP 连接流程。
 
