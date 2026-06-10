@@ -14,87 +14,83 @@ inl 借鉴 [[cli-architecture-overview|lark-cli 架构]]，采用 Go 语言实�
 | 组件 | 选型 | 说明 | 状态 |
 |------|------|------|:---:|
 | CLI 框架 | `spf13/cobra` | 命令树 + 参数解析 | ✅ |
-| 输出系统 | `encoding/json` | JSON 输出（NDJSON/Table/CSV 规划中） | ⚠️ 仅 JSON |
-| TCP 通信 | `net`（标准库） | NRC Socket 协议客户端 | ✅ |
-| 分发 | npm + GoReleaser | 完全复用 lark-cli 的 `scripts/install.js` | 📋 |
+| 输出系统 | `encoding/json` | JSON Envelope + Table + CSV + NDJSON | ✅ |
+| TCP 通信 | `net`（标准库） | NRC Socket 协议客户端 + `reliability` 重试 | ✅ |
+| 分发 | npm + GoReleaser | GitHub Release + npm 7 包，6 平台 | ✅ |
 | 打包 | `go build` 静态编译 | 单文件 ~5MB | ✅ |
 
 ## 2. 项目目录结构
 
-> **图例**：✅ 已实现 | 📋 规划中 | 🔮 未来扩展方向
+> **图例**：✅ 已实现 | 🔮 未来扩展方向
 
-### 2.1 当前实现（Step 7 完成后）
+### 2.1 当前实现（Step 10 完成后）
 
 ```
 inl/
-├── main.go                          ✅ Cobra 命令树入口 + 6 Group + Risk 检查 + --dry-run + Envelope
+├── main.go                          ✅ Cobra 命令树入口 + 7 Group + Risk 检查 + 多格式输出 + device setup 组合命令
 ├── main_test.go                     ✅
 ├── go.mod / go.sum                  ✅ github.com/your-org/inl (依赖仅 cobra)
 ├── AGENTS.md                        ✅ 项目导览 + 源码布局 + 开发规范
 ├── README.md                        ✅ 项目说明
+├── .goreleaser.yaml                 ✅ 跨平台构建配置
+├── .gitignore                       ✅
 │
-├── internal/                        # === 内部包 ===
-│   ├── nrc/                         # NRC Socket 协议客户端
-│   │   ├── frame.go / client.go    ✅ 帧编解码 + TCP 连接 (5s/10s 超时)
-│   │   ├── commands.go              ✅ 24 条 Registry + 5 DCP BodyBuilder + GroupSchema
+├── .github/workflows/               ✅
+│   ├── release.yml                  ✅ GoReleaser 自动发布
+│   └── npm-publish.yml              ✅ npm 7 包发布
+│
+├── internal/                        # === 内部包 (13 个) ===
+│   ├── nrc/                         # NRC Socket 协议客户端 + 命令元数据中心
+│   │   ├── frame.go / client.go    ✅ 帧编解码 + TCP 连接 + reliability 注入
+│   │   ├── commands.go              ✅ 25 条 Registry + 7 Group + 17 BodyBuilder
+│   │   ├── config_body.go           ✅ 11 个 config 写命令 BodyBuilder + fetch 拓扑
 │   │   ├── annotation.go            ✅ Cobra Annotations 常量
+│   │   ├── fetch_topology_*.go      ✅ 拓扑预取 (集成测试)
 │   │   └── *_test.go                ✅
 │   │
 │   ├── output/                      # 输出格式化
 │   │   ├── errors.go                ✅ 结构化错误 (Error + YesRequired/ConfirmationRequired)
 │   │   ├── envelope.go              ✅ 统一 stdout JSON 信封 {ok, data, _notice}
 │   │   ├── dryrun.go                ✅ DryRunFrame + PrintDryRunFrame
+│   │   ├── table.go                 ✅ --format table 表格渲染
+│   │   ├── csv.go                   ✅ --format csv (RFC 4180)
+│   │   ├── ndjson.go                ✅ --format ndjson
 │   │   └── *_test.go                ✅
 │   │
-│   ├── gsd/                         ✅ DataType=13/16 响应模型 (8 structs + MatchResponse)
-│   ├── topology/                    ✅ DataType=12/14 (CallbackJson/Activated/Scan)
+│   ├── reliability/                 ✅ 重试策略子包 (Policy + Default + ShouldRetryNetwork)
+│   ├── configresp/                  ✅ DataType=12 写命令响应模型 (WriteResponse + ShieldDeviceResponse)
+│   ├── gsd/                         ✅ DataType=13/16 响应模型
+│   ├── topology/                    ✅ DataType=12/14 拓扑模型 (CallbackJson/Activated/Scan)
 │   ├── devicestatus/                ✅ GetActRun 焊机状态模型
 │   ├── gsdfile/                     ✅ GSDML 文件响应模型
 │   ├── dcpdevice/                   ✅ DCP 发现设备模型 (9 字段 + Block 映射)
 │   └── netiface/                    ✅ 网络端口列表模型 + Flatten()
 │
-├── skills/                          # === AI Agent Skills ===
-│   ├── inl-shared/
-│   │   └── SKILL.md                 ✅ 共享规则 (Risk/--yes/--dry-run/错误码)
-│   ├── inl-workflow-profinet-write/
-│   │   └── SKILL.md                 ✅ 写操作 4 层安全流程
-│   └── inl-workflow-profinet-config/
-│       └── SKILL.md                 ✅ 端到端 8 阶段配网编排
+├── skills/                          # === AI Agent Skills (3 个) ===
+│   ├── inl-shared/SKILL.md          ✅ 共享规则 (Risk/--yes/--dry-run/错误码)
+│   ├── inl-workflow-profinet-write/SKILL.md  ✅ 写操作 4 层安全流程
+│   └── inl-workflow-profinet-config/SKILL.md ✅ 端到端 8 阶段配网编排
 │
-├── docs/
+├── npm/                             # === npm 薄壳包 (7 个) ===
+│   ├── inl-cli/                     ✅ 入口包
+│   ├── inl-cli-linux-x64/           ✅
+│   ├── inl-cli-linux-arm64/         ✅
+│   ├── inl-cli-darwin-x64/          ✅
+│   ├── inl-cli-darwin-arm64/        ✅
+│   ├── inl-cli-win32-x64/           ✅
+│   └── inl-cli-win32-arm64/         ✅
+│
+├── docs/                            # === 文档 (19 份) ===
 │   ├── inl-prd.md                   ✅ 产品需求文档
 │   ├── inl-architecture.md          ✅ 架构设计文档
 │   ├── inl-workflow-design.md       ✅ 配网工作流设计
-│   ├── inl-step*.md                 ✅ 开发计划 (1-7)
+│   ├── inl-development-status.md    ✅ 开发现状报告
+│   ├── inl-config-field-reference.md ✅ config 写命令字段参照
+│   ├── inl-step*.md                 ✅ 开发计划 (1-10)
 │   └── protocol/
 │       └── field-verification.md    ✅ 实机响应反向核对记录
 │
-└── testdata/                        ✅ 实机响应样本 JSON (~50 个文件)
-```
-
-### 2.2 未来扩展方向
-
-> 当前 `main.go` (~240 行) 通过 `buildGroupCmd`/`buildSubCmd` 两个工厂函数自动遍历 Registry 构建 Cobra 树。当命令数 >30 或 Group >5 时，可考虑拆分到以下结构：
-
-```
-inl/
-├── cmd/                             🔮 未来拆分方向
-│   ├── root.go                      🔮 根命令 + 错误分发
-│   ├── build.go                     🔮 命令树组装
-│   └── <group>/<command>.go         🔮 每命令独立文件
-│
-├── internal/
-│   ├── safety/                      📋 安全策略层 (guard/sandbox/risk)
-│   ├── config/                      📋 本地配置管理
-│   ├── dict/                        📋 GSDML JSON 字典加载
-│   ├── validate/                    📋 IP/MAC/名称验证
-│   └── build/                       📋 编译时版本注入
-│
-├── scripts/                         📋 npm + GoReleaser 分发
-│   ├── install.js
-│   └── run.js
-│
-└── package.json / .goreleaser.yml   📋
+└── testdata/                        ✅ 实机响应样本 + config fixture
 ```
 
 ## 3. 架构分层
@@ -102,22 +98,24 @@ inl/
 ```mermaid
 flowchart TB
     subgraph Entry["入口层 ✅"]
-        MAIN[main.go<br/>Cobra 树 + Risk 检查 + --dry-run]
+        MAIN[main.go<br/>Cobra 树 + Risk 检查 + --dry-run + --format]
     end
 
     subgraph CMD["命令层 (全部在 main.go 中)"]
-        ROOT[rootCmd<br/>6 Group 自动遍历 Registry]
-        TOPO[gsd ✅]
-        GSDCMD[device ✅]
-        DEV[config ✅]
-        IFACE[interface ✅]
-        TOPOS[topology ✅]
-        SCH[schema ✅]
+        ROOT[rootCmd<br/>7 Group 自动遍历 Registry]
+        GSDCMD[gsd ✅]
+        DEVCMD[device ✅]
+        CFGCMD[config ✅]
+        DCPCMD[dcp ✅]
+        SCHCMD[schema ✅]
+        RAWCMD[raw ✅]
     end
 
     subgraph Internal["内部包"]
-        NRC[nrc/ ✅<br/>NRC帧 + TCP + 24 Registry]
-        OUT[output/ ✅<br/>错误 + Envelope + DryRun]
+        NRC[nrc/ ✅<br/>NRC帧 + TCP + 25 Registry + config_body]
+        OUT[output/ ✅<br/>Error + Envelope + DryRun + Table + CSV + NDJSON]
+        REL[reliability/ ✅]
+        CRESP[configresp/ ✅]
         GSDT[gsd/ ✅]
         TOPOT[topology/ ✅]
         DEVS[devicestatus/ ✅]
@@ -137,8 +135,8 @@ flowchart TB
     end
 
     MAIN --> ROOT
-    ROOT --> TOPO & GSDCMD & DEV & IFACE & TOPOS & SCH
-    TOPO & GSDCMD & DEV & IFACE & TOPOS --> NRC
+    ROOT --> GSDCMD & DEVCMD & CFGCMD & DCPCMD & SCHCMD & RAWCMD
+    GSDCMD & DEVCMD & CFGCMD & DCPCMD --> NRC
     NRC <-->|"TCP :6000<br/>JSON帧"| IOCTL
 ```
 
@@ -201,17 +199,20 @@ sequenceDiagram
 | inl 命令 | NRC 命令字 | JSON DataType | io-controller 函数 | 状态 |
 |----------|-----------|---------------|-------------------|:---:|
 | `gsd list` | 0x9275 | 13 | `CallBackGsdFileList` | ✅ |
+| `gsd match` | 0x9275 | 16 | `FilterGSDCompatibleDevices` | ✅ |
 | `device list` | 0x9275 | 12, Func=CallBackJson | `NetWorkTopologyFunction` | ✅ |
 | `device list-active` | 0x9275 | 12, Func=CallBackActivatedJson | `NetWorkTopologyFunction` | ✅ |
 | `device run` | 0x9275 | 12, Func=GetActRun | `NetWorkTopologyFunction` | ✅ |
 | `device gsd-config` | 0x9275 | 12, Func=GetGSDFileNetwork | `NetWorkTopologyFunction` | ✅ |
 | `device gsd-active` | 0x9275 | 12, Func=GetGSDFileActivated | `NetWorkTopologyFunction` | ⚠️ |
-| `config set-driver` ~ `config compile` (11 个) | 0x9275 | 12, Func=对应值 | `NetWorkTopologyFunction` | ✅ |
-| `gsd match` | 0x9275 | 16 | `FilterGSDCompatibleDevices` | ✅ |
-| `topology scan` | 0x9275 | 14 Func=1 | `PerformOnlineAccess` (DCP发现) | ✅ |
-| `device setup-name/ip` | 0x9275 | 14 Func=2/3 | `PerformOnlineAccess` | ✅ |
-| `interface list` | 0x9275 | 14 Func=4 | `PerformOnlineAccess` | ✅ |
+| `config set-driver` ~ `config set-idevice` (11 个) | 0x9275 | 12, Func=对应值 | `NetWorkTopologyFunction` | ✅ |
+| `config compile` | 0x9275 | 12, Func=Compile | `NetWorkTopologyFunction` | ✅ |
+| `dcp scan` | 0x9275 | 14, Func=1 | `PerformOnlineAccess` (DCP发现) | ✅ |
+| `dcp setup-name` | 0x9275 | 14, Func=2 | `PerformOnlineAccess` | ✅ |
+| `dcp setup-ip` | 0x9275 | 14, Func=3 | `PerformOnlineAccess` | ✅ |
+| `dcp interface` | 0x9275 | 14, Func=4 | `PerformOnlineAccess` | ✅ |
 | `schema list` | — | 0 (纯客户端) | `registry traversal` | ✅ |
+| `raw send` | 0x9275 | 0 (透传) | 兜底覆盖 | ✅ |
 | —（响应） | 0x9271 | — | `NRC_SendSocketCustomProtocal` | ✅ |
 
 ## 5. 输出系统
@@ -240,65 +241,59 @@ type ErrorDetail struct {
 
 | 格式 | 标志 | 适用场景 | 状态 |
 |------|------|---------|:---:|
-| JSON | `--format json`（默认） | AI Agent 消费 | ✅ |
-| Table | `--format table` | 人类阅读（`topology scan` 输出设备表） | 📋 |
-| NDJSON | `--format ndjson` | 流水线管道 | 📋 |
-| CSV | `--format csv` | FAE 导出自检报告 | 📋 |
+| JSON | `--format json`（默认） | AI Agent 消费，pipe 链 | ✅ |
+| Table | `--format table` | FAE 现场肉眼读 | ✅ |
+| CSV | `--format csv` | Excel / awk 处理 | ✅ |
+| NDJSON | `--format ndjson` | jq / 管道处理 | ✅ |
 
 ### 5.3 Dry-run 机制
 
 ```mermaid
 flowchart TD
     A[用户/AI 请求写操作] --> B{带 --dry-run?}
-    B -->|是| C[构建 JSON 带 dry_run 标志]
-    C --> D[发送到 io-controller]
-    D --> E{硬件返回 0x00?}
-    E -->|是| F["输出 {ready:true, simulated_status:OK}"]
-    E -->|否| G["输出 {ready:false, error:...}"]
-    B -->|否| H{检查操作模式}
-    H -->|生产模式| I["拒绝: run_mode_lock"]
-    H -->|维护模式| J[执行实际写入]
-    J --> K[输出结果]
+    B -->|是| C[构造 NRC 请求帧]
+    C --> D["输出 DryRunFrame<br/>(16 进制 payload + CRC32)"]
+    D --> E["🛑 跳过连接和发送"]
+    B -->|否| F{带 --yes?}
+    F -->|否| G["拒绝: yes_required<br/>(exit code 10)"]
+    F -->|是| H[连接工业 PC]
+    H --> I[发送请求帧]
+    I --> J[处理响应]
 ```
 
 ## 6. 安全策略
 
-```mermaid
-flowchart LR
-    subgraph 三道防线
-        A[操作模式检查<br/>生产=只读] --> B[Dry-run 预览<br/>内存模拟 → 0x00 ACK]
-        B --> C[边界值 Sandbox<br/>超限弹回]
-    end
-```
+基于 Risk 三级分级的确认门禁：
+
+| Risk | 行为 | `--yes` 要求 |
+|------|------|:---:|
+| `read` | 直接执行，无副作用 | 不需要 |
+| `write` | 需 `--yes` 确认 | 必需，否则 exit code 10 |
+| `high-risk-write` | 需 `--yes` + stderr 警告 | 必需，否则 exit code 10 |
+
+所有写命令支持 `--dry-run` 帧预览（构造帧不发送），可在确认前验证请求内容。
 
 ### 6.1 退出码
 
 | 退出码 | Category | 说明 |
 |--------|----------|------|
 | 0 | — | 成功 |
-| 1 | `internal` | 内部错误 |
+| 1 | `internal` | 内部错误 / 通信失败 |
 | 2 | `validation` | 参数验证错误 |
-| 3 | `config` | 配置错误 |
-| 4 | `authorization` | 操作模式不允许（运行态写入） |
 | 5 | `network` | 工业 PC 不可达 |
 | 6 | `api` | io-controller 返回错误 |
-| 7 | `safety` | 安全策略拒绝（硬件锁） |
-| 10 | `confirmation` | 需要用户确认（高危操作） |
+| 10 | `confirmation` | 需要用户确认（`--yes` 未提供） |
 
-## 7. 构建与分发 📋
-
-> 当前构建方式：`go build -o inl.exe .`。以下为规划中的 npm + GoReleaser 分发流程。
+## 7. 构建与分发 ✅
 
 复用 [[cli-architecture-overview|lark-cli 分发模式]]：
 
 ```mermaid
 flowchart LR
     A[GoReleaser<br/>编译多平台 binary] --> B[GitHub Release]
-    B --> C[npm publish<br/>@your-org/inl]
-    C --> D["用户: npm install -g @your-org/inl"]
+    B --> C[npm publish]
+    C --> D["用户: npm install -g inl-cli"]
     D --> E["postinstall: 下载 binary → bin/inl"]
-    E --> F["npx skills add your-org/inl -g -y"]
-    F --> G["AI Agent 可以使用了"]
 ```
 
 ## 8. 与 io-controller 的边界
@@ -310,11 +305,11 @@ flowchart LR
 | 拓扑管理 | ❌ | ✅ PNConfig 引擎（DataType 12） | ✅ 18 Function 已实现 |
 | 设备匹配 | ❌ | ✅ GSD 兼容性筛选（DataType 16） | ✅ |
 | JSON 封装 | ✅ 拼 JSON 帧 | ✅ 解析 JSON → 执行 | ✅ |
-| 输出格式化 | ✅ JSON（Table/NDJSON/CSV 规划中） | ❌ | ⚠️ |
-| 安全策略 | ✅ 前置 dry-run + Risk 检查 | ✅ 硬件级运行态隔离 | ✅ |
-| 参数验证 | ✅ IP 格式（MAC/名称规划中） | ✅ 编译器层面结构校验 | ⚠️ |
-| 分发 | 📋 npm + GoReleaser | ❌ | 📋 |
-| Schema 发现 | 📋 `inl schema list` | ❌ | 📋 |
+| 输出格式化 | ✅ JSON / Table / CSV / NDJSON | ❌ | ✅ |
+| 安全策略 | ✅ 前置 Risk 分级 + `--dry-run` + `--yes` 门禁 | ✅ 硬件级运行态隔离 | ✅ |
+| 参数验证 | ✅ IP / MAC / 名称 / JSON 结构 | ✅ 编译器层面结构校验 | ✅ |
+| 分发 | ✅ npm + GoReleaser + GitHub Actions | ❌ | ✅ |
+| Schema 发现 | ✅ `inl schema list` | ❌ | ✅ |
 
 ## 9. Skill 文件约定
 
@@ -332,7 +327,7 @@ flowchart LR
 ### 内容结构
 
 1. **适用场景** — 何时触发此 Skill
-2. **前置条件** — `inl config check` 等
+2. **前置条件** — 所需环境与权限
 3. **安全铁律**（仅 inl-shared）— 不可违背的规则
 4. **命令参考** — 此 Skill 涉及的 inl 命令及参数
 5. **工作流**（仅 workflow Skill）— 分步流程 + session context 状态管理

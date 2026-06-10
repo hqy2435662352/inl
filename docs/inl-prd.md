@@ -65,23 +65,22 @@ flowchart LR
 
 错误消息自带可执行的修复指令（`_hint` 字段），AI 可以直接解析并采取下一步行动。
 
-### 2. 安全铁律（一票否决）
+### 2. 安全铁律
+
+所有命令按副作用分为三级 Risk，写操作必须通过 `--yes` 门禁：
 
 | # | 规则 | 实现 |
 |---|------|------|
-| 1 | **生产模式 = 严格只读** | 下位机硬件锁，仅放行 read 级操作 |
-| 2 | **Dry-run 是必经之路** | 写入前必须内存模拟，硬件返回 `0x00` 才放行 |
-| 3 | **物理急停 > 一切** | 不在 CLI 层面实现，由示教器硬件保证 |
-| 4 | **exit code 10 = 确认门禁** | 高危操作必须先向人类确认，禁止 AI 静默加 `--yes` |
+| 1 | **Risk 三级分级** | read / write / high-risk-write，每级对应不同确认策略 |
+| 2 | **`--yes` 强制确认** | write 和 high-risk-write 命令不加 `--yes` 直接拒绝（exit code 10） |
+| 3 | **`--dry-run` 帧预览** | 写命令可先 `--dry-run` 查看请求帧，不连接工业 PC、不发送数据 |
+| 4 | **物理急停 > 一切** | 不在 CLI 层面实现，由示教器硬件保证 |
 
-### 3. 三层命令粒度
-
-借鉴 [[cli-architecture-overview|lark-cli 架构]] 的三层设计：
+### 3. 命令粒度
 
 | 层 | 粒度 | 示例 | 使用者 |
 |----|------|------|--------|
-| **Shortcut（语义层）** | 一个业务意图 | `inl network +auto-fix` | AI Agent 首选 |
-| **协议原语层** | 一个 DCP 操作 | `inl device setup --mac xx --name yy` | AI 分步执行 |
+| **协议原语层** | 一个业务操作 | `inl dcp setup --mac xx --name yy` | AI 分步执行 |
 | **Raw 透传层** | 原始 JSON 帧 | `inl raw send '{"DataType":14}'` | 兜底兼容 |
 
 ## 命令矩阵
@@ -90,36 +89,29 @@ flowchart LR
 
 | 标志 | 类型 | 默认值 | 说明 | 状态 |
 |------|------|--------|------|:---:|
-| `--target` | string | 必填 | 工业 PC 的 IP 地址 | ✅ |
-| `--port` | int | 6000 | NRC Socket 端口 | 📋 |
-| `--format` | enum | json | 输出格式：json / table / ndjson | ⚠️ flag 存在，仅 json 可用 |
-| `--dry-run` | bool | false | 仅模拟，不执行真实操作 | ⚠️ 仅写命令，非全局 |
+| `--target` | string | 必填 | 工业 PC 的 IP 地址（支持 `IP:PORT` 指定端口，默认 :6000） | ✅ |
+| `--format` | enum | json | 输出格式：json / table / csv / ndjson | ✅ |
+| `--dry-run` | bool | false | 仅模拟，不执行真实操作（所有写命令含 DCP 写） | ✅ |
 | `--yes` | bool | false | 跳过确认门禁（写命令必需） | ✅ |
-| `--as` | enum | auto | 身份：user / bot / auto | 📋 |
-| `--profile` | string | default | 配置文件（多车间切换） | 📋 |
+| `--retry` | int | 0 | DCP 命令重试次数（0=默认1次；网络抖动建议 3-5） | ✅ |
 | `-o, --output` | string | — | 导出到文件 | ✅ |
 
 ### 命令树
 
-> **图例**：✅ 已实现 | ⚠️ 部分实现/有已知限制 | 📋 规划中
+> **图例**：✅ 已实现 | ⚠️ 部分实现/有已知限制
 
 ```
 inl
 ├── gsd
 │   ├── list              ✅ 列出 GSD 设备库                  [DataType=13]
-│   ├── match             ✅ 匹配在线设备 ↔ GSD 驱动           [DataType=16]
-│   └── info              📋 查看 GSD 设备详情                 [客户端查 JSON 字典]
+│   └── match             ✅ 匹配在线设备 ↔ GSD 驱动           [DataType=16]
 │
 ├── device
 │   ├── list              ✅ 查看配置中的网络拓扑               [DataType=12, CallBackJson]
 │   ├── list-active       ✅ 查看激活中的网络拓扑               [DataType=12, CallBackActivatedJson]
 │   ├── run               ✅ 查看活动运行设备(焊机)             [DataType=12, GetActRun]
 │   ├── gsd-config        ✅ 查看配置中拓扑的 GSD 文件          [DataType=12, GetGSDFileNetwork]
-│   ├── gsd-active        ⚠️ 查看激活中拓扑的 GSD 文件          [DataType=12, nrc2.out 版本不支持]
-│   ├── setup-name        ✅ DCP 设置设备名称                  [DataType=14, Func=2]
-│   ├── setup-ip          ✅ DCP 设置设备 IP                   [DataType=14, Func=3]
-│   ├── discover          📋 DCP 发现网络设备                  [DataType=14, Func=1]
-│   └── info              📋 查询设备详细信息                   [DataType=14, Func=1]
+│   └── gsd-active        ⚠️ 查看激活中拓扑的 GSD 文件          [DataType=12, nrc2.out 版本不支持]
 │
 ├── config
 │   ├── set-driver        ✅ 设置主站参数                      [DataType=12, SetPNDriver]
@@ -132,26 +124,21 @@ inl
 │   ├── remove-submodule  ✅ 删除子模块                        [DataType=12, UninstallSubmodule]
 │   ├── shield            ✅ 屏蔽设备                          [DataType=12, ShieldDevice]
 │   ├── unshield          ✅ 取消屏蔽                          [DataType=12, UNShieldDevice]
-│   ├── set-idevice       ✅ 设置 IDevice 参数 (骨架)          [DataType=12, SetIDevice]
-│   ├── compile           ✅ 编译并应用配置 (高危)              [DataType=12, Compile, high-risk-write]
-│   ├── init              📋 初始化 inl 配置                   [本地文件]
-│   └── show              📋 显示当前配置                      [本地文件]
+│   ├── set-idevice       ✅ 设置 IDevice 参数 (Activate/InputLength/OutputLength) [DataType=12, SetIDevice]
+│   └── compile           ✅ 编译并应用配置 (高危)              [DataType=12, Compile, high-risk-write]
 │
-├── topology
+├── dcp
 │   ├── scan              ✅ DCP 发现所有从站设备               [DataType=14, Func=1]
-│   ├── active            📋 查看当前激活的拓扑                 [DataType=17]
-│   ├── verify            📋 对照期望拓扑进行校验                [客户端比对]
-│   └── compile           📋 编译为 PNConfig XML               [DataType=12, Func=Compile]
-│
-├── interface
-│   └── list              ✅ 列出工业 PC 网络端口               [DataType=14, Func=4]
+│   ├── interface         ✅ 列出工业 PC 网络端口               [DataType=14, Func=4]
+│   ├── setup             ✅ 一键设置设备(名称+IP+验证)          [组合命令]
+│   ├── setup-name        ✅ DCP 设置设备名称                  [DataType=14, Func=2]
+│   └── setup-ip          ✅ DCP 设置设备 IP                   [DataType=14, Func=3]
 │
 ├── schema
-│   └── list              ✅ AI Agent 发现所有可用命令          [纯客户端, 无 NRC 通信]
+│   └── list              ✅ AI Agent 自发现所有可用命令         [纯客户端, 不连工业 PC]
 │
-├── network (+shortcuts)  📋 全组规划中
-│
-└── raw                   📋 规划中
+└── raw
+    └── send              ✅ 透传原始 JSON 帧                   [DataType=0, 兜底]
 ```
 
 ## Skill 体系
@@ -180,30 +167,34 @@ sequenceDiagram
     AI->>AI: Read inl-shared/SKILL.md
     Note over AI: 学习安全铁律、错误处理
 
-    AI->>CLI: inl topology scan
-    CLI->>NRC: TCP :6000 → DataType=14
-    NRC-->>CLI: JSON 响应
+    AI->>CLI: inl dcp scan
+    CLI->>NRC: TCP :6000 → DataType=14 Func=1
+    NRC-->>CLI: JSON 响应 (设备列表)
 
     AI->>CLI: inl gsd match
     CLI->>NRC: DataType=16
-    NRC-->>CLI: JSON 响应
+    NRC-->>CLI: JSON 响应 (匹配结果)
 
-    AI->>CLI: inl device setup --mac xx --name yy --dry-run
-    CLI->>NRC: DataType=14 Func=2+3
-    NRC-->>CLI: {"status":"0x00", "ready":true}
+    AI->>CLI: inl dcp setup --mac xx --name yy --dry-run
+    CLI->>CLI: 构造请求帧, 不发送
 
-    Note over AI: dry-run 通过，请求确认
+    Note over AI: dry-run 帧预览通过, 请求确认
     User->>AI: "确认"
-    AI->>CLI: inl device setup --mac xx --name yy
+    AI->>CLI: inl dcp setup --mac xx --name yy --yes
     CLI->>NRC: DataType=14 Func=2+3
-    NRC-->>CLI: {"status":"written"}
+    Note over NRC: DCP 写无 JSON 响应<br/>发完即关连接
+
+    AI->>CLI: inl dcp scan
+    CLI->>NRC: DataType=14 Func=1
+    NRC-->>CLI: JSON 响应
+    Note over AI: 验证设备名称/IP 已生效
 ```
 
 ## 商业与工程价值
 
 - **解放 FAE**：将换线配网时查阅 GSDML、对齐插槽的痛苦工作转交给 AI 终端
 - **极低资源开销**：工业 PC 无需联网、无需部署 AI 模型。AI 在调试笔记本上运行，"调完即走，拔线即隔离"
-- **零炸机风险**：dry-run → 硬件 ACK 0x00 → 边界值 Sandbox 三道防线
+- **零炸机风险**：`--dry-run` 帧预览 → `--yes` 确认门禁 → exit code 10 拦截，写操作三重保险
 
 ## 相关文档
 
