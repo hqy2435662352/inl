@@ -68,8 +68,8 @@ inl/
 │
 ├── skills/                          # === AI Agent Skills (3 个) ===
 │   ├── inl-shared/SKILL.md          ✅ 共享规则 (Risk/--yes/--dry-run/错误码)
-│   ├── inl-workflow-profinet-write/SKILL.md  ✅ 写操作 4 层安全流程
-│   └── inl-workflow-profinet-config/SKILL.md ✅ 端到端 8 阶段配网编排
+│   ├── inl-workflow-profinet-config/SKILL.md ✅ 端到端 8 阶段配网编排
+│   └── inl-workflow-profinet-dcp/SKILL.md     ✅ DCP 写操作独立工作流
 │
 ├── npm/                             # === npm 薄壳包 (7 个) ===
 │   ├── inl-cli/                     ✅ 入口包
@@ -126,8 +126,8 @@ flowchart TB
 
     subgraph Skills["Skill 层"]
         S_SH[inl-shared ✅]
-        S_WW[inl-workflow-profinet-write ✅]
         S_CFG[inl-workflow-profinet-config ✅]
+        S_DCP[inl-workflow-profinet-dcp ✅]
     end
 
     subgraph Remote["远端"]
@@ -314,15 +314,15 @@ flowchart LR
 ## 9. Skill 文件约定
 
 > [!NOTE]
-> 当前已实现 3 个 Skill（位于 `inl/skills/`），形成三级依赖链：`inl-shared` ← `inl-workflow-profinet-write` ← `inl-workflow-profinet-config`。
+> 当前已实现 3 个 Skill（位于 `inl/skills/`）：`inl-shared`（基础）→ `inl-workflow-profinet-config`（8 阶段编排）+ `inl-workflow-profinet-dcp`（DCP 独立操作）。
 
 ### 已实现的 Skills
 
 | Skill | 路径 | 说明 |
 |-------|------|------|
 | inl-shared | [inl/skills/inl-shared/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-shared/SKILL.md) | 共享规则 (--target / Risk / --yes / --dry-run / 错误码) |
-| inl-workflow-profinet-write | [inl/skills/inl-workflow-profinet-write/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-write/SKILL.md) | 写操作 4 层安全流程 (预检/备份/确认/回滚) |
-| inl-workflow-profinet-config | [inl/skills/inl-workflow-profinet-config/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-config/SKILL.md) | 端到端 8 阶段配网编排 (评估→发现→规划→委托write→验证) |
+| inl-workflow-profinet-config | [inl/skills/inl-workflow-profinet-config/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-config/SKILL.md) | 端到端 8 阶段配网编排 (评估→发现→规划→写入→编译→验证) |
+| inl-workflow-profinet-dcp | [inl/skills/inl-workflow-profinet-dcp/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-dcp/SKILL.md) | DCP 写操作独立工作流 (setup-name / setup-ip) |
 
 ### 内容结构
 
@@ -339,8 +339,8 @@ flowchart LR
 - [[inl-prd]] — 产品需求文档
 - [inl/AGENTS.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/AGENTS.md) — 当前开发状态与协议契约（建议优先阅读）
 - [inl/skills/inl-shared/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-shared/SKILL.md) — 共享 Skill ✅
-- [inl/skills/inl-workflow-profinet-write/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-write/SKILL.md) — 写操作工作流 ✅
 - [inl/skills/inl-workflow-profinet-config/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-config/SKILL.md) — 配网编排工作流 ✅
+- [inl/skills/inl-workflow-profinet-dcp/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-dcp/SKILL.md) — DCP 写操作独立工作流 ✅
 - [[cli-architecture-overview]] — lark-cli 架构（参考源）
 - [[cli-module-cmd]] — lark-cli 命令层（参考源）
 - [[cli-module-client-output]] — lark-cli 输出系统（参考源）

@@ -148,8 +148,8 @@ inl
 | Skill | 文件 | 类型 | 角色 | 状态 |
 |-------|------|------|------|:---:|
 | inl-shared | [inl/skills/inl-shared/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-shared/SKILL.md) | 🔒 共享约定 | 安全铁律、输出约定、错误处理 | ✅ |
-| inl-workflow-profinet-write | [inl/skills/inl-workflow-profinet-write/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-write/SKILL.md) | 🔄 工作流 | 写操作 4 层安全流程（预检/备份/确认/回滚） | ✅ |
 | inl-workflow-profinet-config | [inl/skills/inl-workflow-profinet-config/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-config/SKILL.md) | 🔄 工作流 | 端到端 8 阶段配网编排（评估→发现→规划→写入→编译→验证） | ✅ |
+| inl-workflow-profinet-dcp | [inl/skills/inl-workflow-profinet-dcp/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-dcp/SKILL.md) | 🔄 工作流 | DCP 写操作独立工作流（setup-name / setup-ip） | ✅ |
 
 ### Skill 使用流程
 
@@ -162,7 +162,7 @@ sequenceDiagram
 
     User->>AI: "新来了3个从站，帮我配网"
 
-    Note over AI: 匹配 SKILL.md →<br/>inl-workflow-profinet-config
+    Note over AI: 匹配 SKILL.md →<br/>inl-workflow-profinet-config / inl-shared
 
     AI->>AI: Read inl-shared/SKILL.md
     Note over AI: 学习安全铁律、错误处理
@@ -201,7 +201,7 @@ sequenceDiagram
 - [[inl-architecture]] — 架构设计文档
 - [inl/AGENTS.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/AGENTS.md) — 当前开发状态与协议契约（建议优先阅读）
 - [inl/skills/inl-shared/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-shared/SKILL.md) — 共享 Skill 约定 ✅
-- [inl/skills/inl-workflow-profinet-write/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-write/SKILL.md) — 写操作安全工作流 ✅
 - [inl/skills/inl-workflow-profinet-config/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-config/SKILL.md) — 端到端配网编排 ✅
+- [inl/skills/inl-workflow-profinet-dcp/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-dcp/SKILL.md) — DCP 写操作独立工作流 ✅
 - [[cli-architecture-overview]] — lark-cli 架构（参考源）
 - [[cli-data-flows]] — lark-cli 数据流（参考源）

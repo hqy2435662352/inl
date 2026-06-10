@@ -11,7 +11,7 @@ metadata:
 
 **CRITICAL — 开始前 MUST 先用 Read 工具读取本文件**。所有 inl-* workflow skill 都依赖本规则。
 
-`inl` 是工业 PC 上 NRC Socket 协议的 CLI 调试工具,通过 TCP:6000 与运行 `nrc2.out` 的工业 PC 通信。场景工作流见 [`../inl-workflow-profinet-write/SKILL.md`](../inl-workflow-profinet-write/SKILL.md)。
+`inl` 是工业 PC 上 NRC Socket 协议的 CLI 调试工具,通过 TCP:6000 与运行 `nrc2.out` 的工业 PC 通信。完整配网工作流见 [`../inl-workflow-profinet-config/SKILL.md`](../inl-workflow-profinet-config/SKILL.md)，独立 DCP 操作见 [`../inl-workflow-profinet-dcp/SKILL.md`](../inl-workflow-profinet-dcp/SKILL.md)。
 
 > **AI Agent 起步推荐**: 接到 inl 相关任务时,**先跑 `inl schema list`**(纯客户端, 无需 `--target`)获取所有 23 条 NRC 命令的元数据(name / group / use / description / risk / data_type / function / args / fields 9 字段),再决定调用哪个子命令。schema list 输出的字段、枚举值、约束与 inl 二进制自身完全一致,无需另查文档。
 
@@ -114,7 +114,7 @@ inl 的命令按作用域分为**两套不同系统**，理解这个区别是正
 | 操作对象 | `networktopology.json`（机器人对外部网络的"猜想"蓝图） | 实际物理设备（通过网线直连） |
 | 影响范围 | 配置文件内的记录 | 设备本身的名称/IP/子网掩码 |
 | 响应 | 有 JSON Envelope（ok/data/error） | **无 JSON 响应**（`data: null`） |
-| 验证方式 | 直接读 `device list` 看配置态 | 必须跑 `device list` 或 `topology scan` 确认 |
+| 验证方式 | 直接读 `device list` 看配置态 | 必须跑 `topology scan` 验证（DCP 写操作直接改运行态，`device list` 不反映变化） |
 | 举例 | `config set-driver` / `config add-device` / `config shield` | `device setup-name` / `device setup-ip` |
 
 **典型工作流**：配置设备通常需要两步——先用 config 命令改配置态（蓝图），再用 DCP 命令把实际参数推送给物理设备。
@@ -126,7 +126,7 @@ inl --target <IP> config set-device --data '{"SetPNDeviceNum":1,"DeviceName":"my
 
 # 第二步：通过 DCP 把参数推给实际设备
 inl --target <IP> device setup-ip --interface enp4s0 --mac AA:BB:CC:DD:EE:FF --ip 192.168.2.20 --mask 255.255.255.0
-# 输出: Envelope with data: null, 需 device list 验证
+# 输出: Envelope with data: null, 需 topology scan 验证
 ```
 
 **`--dry-run`** 只适用于 config 命令（修改配置态时做预检）；DCP 写命令无 `--dry-run`。
@@ -345,7 +345,8 @@ optional_fields = fields.filter(f => !f.required)
 
 ## 9. 参考
 
-- [`../inl-workflow-profinet-write/SKILL.md`](../inl-workflow-profinet-write/SKILL.md) — 写命令工作流(4 层安全原则 + 11 命令安全矩阵)
+- [`../inl-workflow-profinet-config/SKILL.md`](../inl-workflow-profinet-config/SKILL.md) — 端到端配网 8 阶段编排
+- [`../inl-workflow-profinet-dcp/SKILL.md`](../inl-workflow-profinet-dcp/SKILL.md) — DCP 写操作独立工作流
 - [`../../inl/AGENTS.md`](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/AGENTS.md) — inl 客户端权威开发文档
 - [`../../inl/internal/nrc/commands.go`](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/internal/nrc/commands.go) — Registry 24 条命令元数据(23 NRC + 1 schema 纯客户端)
 - [`../../inl/internal/nrc/frame.go`](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/internal/nrc/frame.go) — NRC 帧编解码

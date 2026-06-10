@@ -1,21 +1,16 @@
 ---
 name: inl-workflow-profinet-config
 version: 1.0.0
-description: "PROFINET 端到端配网 8 阶段编排: 环境评估 → 网络发现 → 方案规划 → 安全备份 → 预检 → 配置写入 → 编译激活 → 验证交付。AI 接到'配网/添加设备/修改配置/屏蔽设备'任务时强制加载。编排 Phase 1-3-8, 委托 Phase 4-7 给 inl-workflow-profinet-write。"
+description: "PROFINET 端到端配网 8 阶段编排: 环境评估 → 网络发现 → 方案规划 → 配置写入 → 编译激活 → 验证交付。AI 接到'配网/添加设备/修改配置/屏蔽设备'任务时强制加载。"
 metadata:
   requires:
     bins: ["inl"]
-    skills: ["inl-shared", "inl-workflow-profinet-write"]
+    skills: ["inl-shared"]
 ---
 
 # inl PROFINET 端到端配网工作流
 
-**CRITICAL — 开始前 MUST 先用 Read 工具读取以下两个文件**:
-
-1. [`inl-shared/SKILL.md`](../inl-shared/SKILL.md) — Risk 等级 / `--yes` / `--dry-run` / 错误码
-2. [`inl-workflow-profinet-write/SKILL.md`](../inl-workflow-profinet-write/SKILL.md) — 写操作 4 层安全流程 (备份 → 预检 → 写入 → 编译激活)
-
-本 Skill 是"编排器"——负责 Phase 1-3 (评估→发现→规划) + Phase 8 (验证交付)。Phase 4-7 (备份→预检→写入→编译) 委托给 `inl-workflow-profinet-write`。两者通过 `ChangePlan` 数据结构交接。
+**CRITICAL — 开始前 MUST 先用 Read 工具读取 [`inl-shared/SKILL.md`](../inl-shared/SKILL.md)**，其中包含 `--target` / `--yes` / `--dry-run` / Risk 等级 / 结构化错误等共享约定。
 
 ---
 
@@ -44,13 +39,11 @@ AI Agent 收到下列任务时,**强制**触发本 Skill:
 
 ```
 Phase 1 ──→ Phase 2 ──→ Phase 3 ──→ Phase 4 ──→ Phase 5 ──→ Phase 6 ──→ Phase 7 ──→ Phase 8
-环境评估    网络发现    方案规划    安全备份    预检确认    配置写入    编译激活    验证交付
-(Read)     (Read)     (AI)       (Manual)   (DryRun)   (Write)    (HiRisk)   (Read)
-│                                                      │                      │
-└────────── 本 Skill 负责 ──────────┘    └── write Skill ──┘    └─ 本 Skill ──┘
+环境评估    网络发现    方案规划    写入确认    配置写入    编译激活    DCP 分配    验证交付
+(Read)     (Read)     (AI)       (DryRun)   (Write)    (HiRisk)   (DCP)      (Read)
 ```
 
-> **例外**: `config shield` 和 `config unshield` 虽然是 config 命令组，但**运行时生效**（不走 compile 链路），可直接在 Phase 6 执行无需 Phase 7。响应特殊（`Function.Value` 返回 bool 而非字符串），AI 需按 `ShieldDeviceResponse` 解析。
+> **例外**: `config shield` 和 `config unshield` 虽然是 config 命令组，但**运行时生效**（不走 compile 链路），写入后直接生效无需编译激活。
 
 ---
 
@@ -243,19 +236,18 @@ DiscoveredDevices:
 
 ---
 
-## Phase 4-7：委托给 inl-workflow-profinet-write
+## Phase 4-7：配置写入与编译
 
-将 `ChangePlan` 传递给 `inl-workflow-profinet-write` Skill 执行:
+按 `ChangePlan.changes` 的顺序逐一执行：
 
 ```
-Phase 4 安全备份 ──→ SCP 备份 networktopology.json (remove-*/compile 强制备份)
-Phase 5 预检确认 ──→ 逐条 config * --dry-run, 校验 DryRunFrame
-Phase 6 配置写入 ──→ config * --yes 依次执行
-Phase 7.3 DCP 分配 ──→ 对在线设备 `device setup-name/ip` 推送参数（**无 JSON 响应**, 写后需 `device list` 验证, 详见 write SKILL §DCP）
-Phase 7.4 编译激活 ──→ config compile --yes (高危, 需人工确认)
+Phase 4 写入确认 ──→ inl --target <IP> config <subcommand> --data '<json>' --dry-run
+Phase 5 配置写入 ──→ inl --target <IP> config <subcommand> --data '<json>' --yes
+Phase 6 编译激活 ──→ inl --target <IP> config compile --yes（如需编译）
+Phase 7 DCP 分配 ──→ 参见 inl-workflow-profinet-dcp（仅在线设备）
 ```
 
-> write Skill 执行完成后,控制权回到本 Skill 的 Phase 8。
+> `<subcommand>` 取自 `ChangePlan.changes[].command`（如 `add-device`、`set-device`、`remove-device`），`<json>` 取自 `changes[].payload`。
 
 ---
 
@@ -274,7 +266,7 @@ inl --target <IP> device list           # 配置中拓扑 (对比基准)
 
 > `device list` 与 `device list-active` 顶层结构一致 (IDevice + PNDriver + DecentralDevice[]), 直接逐字段对比。
 >
-> ⚠️ 如果配网过程中执行了 DCP 写命令（`device setup-name/ip`），Phase 8 的 `device list` 既是配置验证工具，也是 DCP 写操作的**唯一确认手段**（DCP 命令无 JSON 响应）。
+> ⚠️ 如果配网过程中执行了 DCP 写命令（`device setup-name/ip`），Phase 8 后需额外执行 `topology scan` 来验证 DCP 写操作效果（DCP 命令无 JSON 响应，`topology scan` 是唯一确认手段）。
 
 | 校验项 | 配置源 | 激活源 | 通过条件 |
 |--------|--------|--------|---------|
@@ -314,7 +306,6 @@ AI Agent 在整个工作流中维护 `session_context`:
   "current_topology": { /* Phase 1 快照 */ },
   "discovered_devices": { /* Phase 2 快照 */ },
   "change_plan": { /* Phase 3 输出 */ },
-  "backup_path": "",
   "verification_report": null
 }
 ```
@@ -322,9 +313,9 @@ AI Agent 在整个工作流中维护 `session_context`:
 ## 状态机
 
 ```
-INIT → ASSESSING → DISCOVERING → CLARIFYING → PLANNING → REVIEWING → BACKING_UP
-  → PRECHECKING → WRITING → DCP_ASSIGNING → COMPILING → VERIFYING → COMPLETE
-                                                                  → ROLLING_BACK → FAILED
+INIT → ASSESSING → DISCOVERING → CLARIFYING → PLANNING → REVIEWING → WRITING
+  → COMPILING → DCP_ASSIGNING → VERIFYING → COMPLETE
+                               → FAILED
 ```
 
 | 状态 | 操作 | 退出条件 |
@@ -334,14 +325,11 @@ INIT → ASSESSING → DISCOVERING → CLARIFYING → PLANNING → REVIEWING →
 | `CLARIFYING` | 逐条确认模糊意图 (每次 ≤2 个问题) | 全部澄清 |
 | `PLANNING` | 冲突检测 + 变更规划 + 生成 ChangePlan | ChangePlan 生成 |
 | `REVIEWING` | 展示 diff, 等待用户批准 | 用户 approve/reject |
-| `BACKING_UP` | 提示 SCP 命令, 等待用户确认 | 备份确认 |
-| `PRECHECKING` | 逐条 config * --dry-run (委托 write) | 全部通过 |
-| `WRITING` | config * --yes (委托 write) | 全部写入 |
-| `DCP_ASSIGNING` | `device setup-name/ip` 推送在线设备参数（无 JSON 响应, 详见 write SKILL §DCP） | 完成或跳过 |
-| `COMPILING` | config compile --yes (委托 write, 高危确认) | compile 返回 |
+| `WRITING` | 逐条执行 config * --dry-run → config * --yes | 全部写入 |
+| `DCP_ASSIGNING` | `device setup-name/ip` 推送在线设备参数（无 JSON 响应, 写后需 `topology scan` 验证, 详见 inl-workflow-profinet-dcp） | 完成或跳过 |
+| `COMPILING` | config compile --yes | compile 返回 |
 | `VERIFYING` | device list-active ↔ device list 比对 | 验证通过/失败 |
 | `COMPLETE` | 配网成功 | 终端 |
-| `ROLLING_BACK` | 反向命令或 SCP 恢复 | 回滚完成 |
 | `FAILED` | 不可恢复 | 终端 |
 
 ---
@@ -355,8 +343,7 @@ INIT → ASSESSING → DISCOVERING → CLARIFYING → PLANNING → REVIEWING →
 | 端口选择 | 多个网络端口 | 列出端口, 提示选择 |
 | 意图确认 | 用户输入模糊 | 逐条提问 (每次 ≤2 个问题) |
 | 展示变更方案 | Phase 3 完成 | 展示 ChangePlan + diff |
-| 请求备份 | Phase 4 进入 | 列出 SCP 命令 |
-| 高危确认 | Phase 7 compile 前 | "即将编译并激活新配置。确定?" |
+| 高危确认 | Phase 6 compile 前 | "即将编译并激活新配置。确定?" |
 
 ---
 
@@ -365,7 +352,6 @@ INIT → ASSESSING → DISCOVERING → CLARIFYING → PLANNING → REVIEWING →
 - ❌ 跳过 GSD 语义富化
 - ❌ 意图模糊时自行猜测
 - ❌ 将 `192.168.2.14` 分配给从站
-- ❌ 跳过 remove-*/compile 的强制备份
 - ❌ 盲配完成后报告"设备已验证通过"——必须标注 "⚠️ 设备未实际验证"
 - ❌ 用 `device run` 的 Status 判断是否应该配置
 - ❌ **臆想设备/模块/子模块 ID** — `config add-device` 的 `DAP_ID`、`config add-module` 的 `ModuleID`、`config add-submodule` 的 `SubmoduleID` **必须**从 `gsd list` 返回的实际值中提取，**严禁**自编（如 `"0x0001"`）
@@ -375,5 +361,5 @@ INIT → ASSESSING → DISCOVERING → CLARIFYING → PLANNING → REVIEWING →
 ## 参考
 
 - [inl-shared/SKILL.md](../inl-shared/SKILL.md) — 共享规则 (必读)
-- [inl-workflow-profinet-write/SKILL.md](../inl-workflow-profinet-write/SKILL.md) — 写操作安全流程 (委托 Phase 4-7)
+- [inl-workflow-profinet-dcp/SKILL.md](../inl-workflow-profinet-dcp/SKILL.md) — DCP 写操作独立工作流 (Phase 7)
 - [inl-workflow-design.md](../../docs/inl-workflow-design.md) — 工作流设计文档 (完整规范)

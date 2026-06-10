@@ -9,7 +9,7 @@ status: draft
 
 ## 文档说明
 
-本文档定义了使用 inl CLI 完成 PROFINET 网络配置的**端到端工作流规范**。它是连接 inl 原子命令（`gsd list`、`device list`、`config set-driver` 等 17 个命令）与 AI Agent 语义理解的桥梁，也是后续实现 `network +shortcuts` 语义层和 `inl-workflow-profinet-config` Skill 的**唯一权威设计依据**。
+本文档定义了使用 inl CLI 完成 PROFINET 网络配置的**端到端工作流规范**。它是连接 inl 原子命令（`gsd list`、`device list`、`config set-driver` 等 17 个命令）与 AI Agent 语义理解的桥梁，也是后续实现 `network +shortcuts` 语义层和 `inl-workflow-profinet-config` / `inl-workflow-profinet-dcp` Skill 的**唯一权威设计依据**。
 
 > **设计原则**：工作流定义命令的"排列组合方式"，不引入新的底层协议。所有工作流步骤最终都映射到现有的（或规划中的）`inl <group> <subcommand>` 原子命令。
 
@@ -846,12 +846,7 @@ if gsd match 失败:
 
 #### Phase 5-6（写操作）
 
-遵循 [inl-workflow-profinet-write](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-write/SKILL.md) 的 4 层安全流程：
-
-1. **Layer 1 预检**：dry-run → 校验 payload（本 Phase 已覆盖）
-2. **Layer 2 备份**：SCP 备份（Phase 4 已覆盖）
-3. **Layer 3 确认**：write 自动 --yes / high-risk 人工确认
-4. **Layer 4 回滚**：失败时的反向命令或备份恢复
+逐条执行 inl config <subcommand> --dry-run → --yes，按项目清单和参数顺序执行即可。
 
 #### Phase 7（DCP 分配 + 高危编译）
 
@@ -1023,7 +1018,7 @@ DiscoveredDevices:
 
 ## 7. 与现有体系的关系
 
-### 7.1 与 `inl-shared` / `inl-workflow-profinet-write` 的关系
+### 7.1 与 `inl-shared` / `inl-workflow-profinet-config` / `inl-workflow-profinet-dcp` 的关系
 
 ```
 inl-shared (共享规则)
@@ -1031,15 +1026,15 @@ inl-shared (共享规则)
     ├── 结构化错误码                    ← 本工作流错误处理的基础
     └── stdout/stderr 约定             ← 本工作流输出格式的基础
 
-inl-workflow-profinet-write (写操作安全)
-    ├── 4 层安全流程                   ← 本工作流 Phase 4/5/6/7 的安全框架
-    ├── 11 命令安全矩阵                ← 本工作流 ChangePlan 的风险依据
-    └── 回滚路径                       ← 本工作流 §4.3 的回滚策略
+inl-workflow-profinet-config (工作流编排器)
+    ├── 8 阶段端到端编排               ← 本工作流的完整映射
+    ├── 状态机 + Session Context       ← 增量标准
+    ├── 冲突检测 + 验证域              ← 增量标准
+    └── Phase 4-7 命令清单              ← 直接映射到本工作流 Phase 5/6/7
 
-inl-workflow-profinet-config (本工作流，规划中)
-    ├── 8 阶段端到端编排               ← 将其它两个 Skill 串联为完整业务流
-    ├── 状态机 + Session Context       ← 新增能力
-    └── 冲突检测 + 验证域              ← 新增能力
+inl-workflow-profinet-dcp (DCP 写操作独立 skill)
+    ├── 3 步简化流程                    ← 本工作流 §2.3.9 的独立子集
+    └── MAC 定位 + IP/Name 冲突检查    ← 本工作流 §2.2 的自主版本
 ```
 
 ### 7.2 与 `profinet-network-engineer` 的差异
@@ -1074,7 +1069,8 @@ inl-workflow-profinet-config (本工作流，规划中)
 - [inl-architecture.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/docs/inl/inl-architecture.md) — 架构设计文档
 - [inl/AGENTS.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/AGENTS.md) — 协议契约与开发规范
 - [inl/skills/inl-shared/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-shared/SKILL.md) — 共享规则
-- [inl/skills/inl-workflow-profinet-write/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-write/SKILL.md) — 写操作安全流程
+- [inl/skills/inl-workflow-profinet-config/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-config/SKILL.md) — 端到端配网编排
+- [inl/skills/inl-workflow-profinet-dcp/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/inl/skills/inl-workflow-profinet-dcp/SKILL.md) — DCP 写操作独立工作流
 - [skills/profinet-network-engineer/SKILL.md](file:///c:/Users/BYD/Documents/trae_projects/feishu_cli/skills/profinet-network-engineer/SKILL.md) — 参考源（工具链编排范式）
 
 ### C. 评审检查清单

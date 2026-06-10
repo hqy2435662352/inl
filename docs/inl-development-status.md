@@ -14,7 +14,7 @@ status: published
 | 总体完成度 | **100%** (L0-L2) / **95%** (含 L3 离线验证) | 核心功能 100%、输出体系 100%、稳定性 100%、分发 100%、文档 100%；**Step 10.B 修复 5 个 inl Bug + 2 个 C++ Bug，SMC EX245 全链路 L2 实机通过**；L3 compile 离线验证通过 (实机待有编译环境的 PC) |
 | 命令总数 | **25 条 + 1 组合** | gsd=2, device=7+setup, config=12 (含 set-idevice 参数化), interface=1, topology=1, schema=1, raw=1 |
 | 测试覆盖 | **11 包全部 PASS** | go vet 零警告；新增 reliability 10 测试 + configresp 12 测试 + main 包 `TestIsDCPWriteClosedConnection` 7 真值表 + `TestIsNilSlice` 5 真值表 = 34 新测试 |
-| Skill 体系 | **3/3** | inl-shared + inl-workflow-profinet-write + inl-workflow-profinet-config (后者增"禁止臆想 DAP_ID/ModuleID"规则) |
+| Skill 体系 | **3/3** | inl-shared + inl-workflow-profinet-config + inl-workflow-profinet-dcp |
 | 设计文档 | **19 份** | PRD / 架构 / 工作流 / 9 份 step plan / P0 修复 / field-verification (含 12 节 v3 修复后实机核对) / step10-config-write-validation-plan / config-field-reference / 字段参照 |
 | 实机验证 | **L0-L2 全部通过** | 工业 PC 192.168.3.15 SMC EX245 pipeline (add-device → add-module×2 → add-submodule → set-driver → set-idevice → 全回滚) ✅. L3 compile 离线验证 |
 | DCP 稳定性实测 | **已通过** | 2026-06-04 连续高频率 DCP 读操作稳定性测试通过 |
@@ -103,8 +103,8 @@ status: published
 | Skill | 行数 | 依赖 | 覆盖 |
 |------|:--:|------|------|
 | `inl-shared` | ~150 | bins:["inl"] | Risk/--yes/--dry-run/错误码/Envelope |
-| `inl-workflow-profinet-write` | ~250 | shared | 4 层安全: 备份→预检→写入→编译 |
-| `inl-workflow-profinet-config` | ~370 | shared+write | 8 阶段编排: 评估→发现→规划→验证 |
+| `inl-workflow-profinet-config` | ~300 | shared | 8 阶段编排: 评估→发现→规划→写入→编译→验证 |
+| `inl-workflow-profinet-dcp` | ~80 | shared | DCP 写操作: setup-name / setup-ip |
 
 ### 2.6 文档
 
@@ -276,8 +276,8 @@ inl/                                   # ~80 个文件 (Step 9 后)
 │
 ├── skills/                            # 3 个 Skill
 │   ├── inl-shared/
-│   ├── inl-workflow-profinet-write/
-│   └── inl-workflow-profinet-config/
+│   ├── inl-workflow-profinet-config/
+│   └── inl-workflow-profinet-dcp/
 │
 ├── docs/                              # 17 份文档
 │   ├── inl-prd.md, inl-architecture.md, inl-workflow-design.md

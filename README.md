@@ -181,7 +181,7 @@ inl 配套 3 个 AI Agent Skill 文档，位于 `skills/` 目录：
 | Skill | 用途 | 加载时机 |
 |-------|------|---------|
 | [`inl-shared`](skills/inl-shared/SKILL.md) | 共享规则：Risk 等级、`--yes`/`--dry-run`、错误码 | 所有 inl 任务必读 |
-| [`inl-workflow-profinet-write`](skills/inl-workflow-profinet-write/SKILL.md) | 写操作 4 层安全流程：预检 → 备份 → 确认 → 回滚 | 接到修改/删除/编译任务时 |
+| [`inl-workflow-profinet-dcp`](skills/inl-workflow-profinet-dcp/SKILL.md) | DCP 写操作：setup-name / setup-ip 简化 3 步流程 | 现场临时改设备名/IP |
 | [`inl-workflow-profinet-config`](skills/inl-workflow-profinet-config/SKILL.md) | 配网 8 阶段编排：评估→发现→规划→验证→执行→编译→检查→文档 | 接到完整配网任务时 |
 
 ## 开发
