@@ -38,12 +38,34 @@ AI Agent 收到下列任务时,**强制**触发本 Skill:
 ## 8 阶段全景
 
 ```
-Phase 1 ──→ Phase 2 ──→ Phase 3 ──→ Phase 4 ──→ Phase 5 ──→ Phase 6 ──→ Phase 7 ──→ Phase 8
-环境评估    网络发现    方案规划    写入确认    配置写入    编译激活    DCP 分配    验证交付
-(Read)     (Read)     (AI)       (DryRun)   (Write)    (HiRisk)   (DCP)      (Read)
+Phase 0 ──→ Phase 1 ──→ Phase 2 ──→ Phase 3 ──→ Phase 4 ──→ Phase 5 ──→ Phase 6 ──→ Phase 7 ──→ Phase 8
+Schema发现  环境评估    网络发现    方案规划    写入确认    配置写入    编译激活    DCP 分配    验证交付
+(Client)   (Read)     (Read)     (AI)       (DryRun)   (Write)    (HiRisk)   (DCP)      (Read)
 ```
 
 > **例外**: `config shield` 和 `config unshield` 虽然是 config 命令组，但**运行时生效**（不走 compile 链路），写入后直接生效无需编译激活。
+
+---
+
+## Phase 0：Schema 发现（强制）
+
+**目标**: 获取所有命令的精确字段元数据和全局标志，避免凭记忆拼凑参数。
+
+**这是强制步骤，不可跳过。**
+
+```bash
+inl schema list
+inl --help
+```
+
+`schema list` 返回 `commands[].args[].fields[]` 提供：
+- 字段名（`name`）、字段类型（`type`）、是否必填（`required`）、描述与示例
+
+`--help` 展示全局标志（`--target`、`--output`、`--retry`、`--format`）和写命令专属标志（`--yes`、`--dry-run`、`--stdin`、`--data-file`）。
+
+> 两者互补：schema list = 数据模型，--help = 调用接口。组合使用后即可构造合法命令，无需探索项目文件。
+
+> **构造 `--data` JSON 时，必须严格对照 `fields[]`。如 `config-add-device` 的 fields 只有 `RefGSD` + `DAP_ID`，则不应传入 `DeviceName` / `IPAddress`。**
 
 ---
 
@@ -53,18 +75,22 @@ Phase 1 ──→ Phase 2 ──→ Phase 3 ──→ Phase 4 ──→ Phase 5 
 
 ### 执行命令
 
+> **🚫 禁止并行执行**：Phase 1 的 4 条命令必须串行，每条等前一条完成后再执行下一条。并行连接会导致 nrc2.out 拒绝连接。
+
+> 所有输出大的命令使用 `--output $env:TEMP\...` 写入文件，避免终端截断和 `Out-File` 安全检查。命令执行后用 Read 工具直接读取 JSON 文件。
+
 ```bash
-# 1.1 GSD 驱动列表
-inl --target <IP> gsd list
+# 1.1 GSD 驱动列表（输出 >20KB，必须 --output）
+inl --target <IP> gsd list --output $env:TEMP\gsd.json
 
 # 1.2 配置中拓扑 (CallBackJson — 设计师视角)
-inl --target <IP> device list
+inl --target <IP> device list --output $env:TEMP\device_list.json
 
 # 1.3 激活中拓扑 (CallBackActivatedJson — 运行时视角)
-inl --target <IP> device list-active
+inl --target <IP> device list-active --output $env:TEMP\device_active.json
 
 # 1.4 活动设备状态 (焊机运行状态)
-inl --target <IP> device run
+inl --target <IP> device run --output $env:TEMP\device_run.json
 ```
 
 ### Step 1.5: GSD 语义富化
@@ -122,6 +148,13 @@ Phase 1 完成后,AI **必须**回到用户的初始输入,用富化后的设备
 
 **目标**: DCP 发现在线设备,获取物理世界真相。部分设备离线是**正常**状态——盲配是现场常见工作方式。
 
+> **🔴 `device list-active` 不是在线设备列表！**
+> `device list-active` 返回的是工业 PC 端已激活的配置拓扑，**不是**实际在线的物理设备。
+> 只有 `topology scan` (DCP Layer 2 广播) 能确认哪些设备真正在线。
+> 如果 `topology scan` 失败，**不得**用 `device list-active` 推断在线设备，必须标记为"盲配"。
+
+> **🚫 禁止并行执行**：Phase 2 的命令同样必须串行。
+
 ### Step 2.0: 端口选择
 
 DCP 发现需要指定物理端口。先获取工业 PC 可用端口:
@@ -139,10 +172,10 @@ inl --target <IP> interface list
 
 ```bash
 # 2.1 DCP 发现在线设备
-inl --target <IP> topology scan --interface <port>
+inl --target <IP> topology scan --interface <port> --output $env:TEMP\scan.json
 
 # 2.2 GSD 匹配
-inl --target <IP> gsd match --interface <port>
+inl --target <IP> gsd match --interface <port> --output $env:TEMP\gsd_match.json
 ```
 
 ### 每设备粒度判断
@@ -164,12 +197,6 @@ DiscoveredDevices:
 
 **目标**: 对比"当前状态"与"用户期望", 生成 `ChangePlan`。
 
-### Step 3.0: Schema 发现 (推荐)
-
-构造 `ChangePlan.payload` 前,**建议**调用 `inl schema list`（纯客户端命令,无需 `--target`,不连工业 PC）,从返回的 `fields` 字段直接获取目标命令接受的 JSON 字段列表（name / type / required / description / example）,避免凭记忆拼凑字段名。
-
-> `inl schema list` 的数据源是 inl 二进制自身编译的 Registry,不是工业 PC 状态——Agent 可在无网络连接时使用。
-
 ### Step 3.1: 意图确认
 
 在生成 ChangePlan 前,**必须**评估用户意图是否明确。模糊时禁止猜测,逐条澄清 (每次最多 2 个问题):
@@ -181,6 +208,69 @@ DiscoveredDevices:
 | 目标参数 | "IP 改成 192.168.2.20" | "改下 IP" (无具体值) |
 | 设备名称 | "叫 heron-weld-2" | 未指定 |
 | 作用范围 | "只配这台" | "全部配好" |
+
+### Step 3.1.5: set-device 参数确认
+
+当 ChangePlan 包含 `config-set-device` 时，由于全部 6 字段必传，**必须**逐字段与用户确认（不修改的字段传 device list 原值，用户未指定的字段用默认值）：
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `DeviceName` | 原值 | 用户指定新名称则用新的，否则沿用 `device list` 中的值 |
+| `IPAddress` | 原值 | 用户指定新 IP 则用新的，否则沿用 `device list` 中的值 |
+| `SubnetMask` | `255.255.255.0` | 用户未指定时默认此值 |
+| `ReductionRatio` | `16` | 设备信号更新周期（ms），用户未指定时默认 16ms |
+| `SetInTheProject` | `true` | 是否在项目中配置 IP 地址。true 时 IPAddress/SubnetMask 生效；false 时改用设备实际 IP 通信 |
+
+AI 必须向用户展示完整参数表并要求确认：
+```
+即将设置设备 [ex245] 的参数：
+  DeviceName:      ex245           (原值不变)
+  IPAddress:       192.168.2.17    (原值不变)
+  SubnetMask:      255.255.255.0   (默认)
+  ReductionRatio:  16              (默认 16ms)
+  SetInTheProject: true            (默认)
+  确认？(yes/修改某项/取消)
+```
+
+### Step 3.2: Multi-DAP 选择（强制）
+
+当 Phase 1 `gsd list` 中目标设备的 `DAP[]` 数组长度 > 1 时，**必须**让用户选择使用哪个 DAP 接口。
+
+```
+检测到多 DAP:
+  GSD: GSDML-V2.34-SMC-EX245-SPN-20181102.xml (SMC EX245)
+  DAP 列表:
+    [1] DAP 1 — EX245-SPN FX  (DAP_ID="DAP 1")
+    [2] DAP 2 — EX245-SPN Cu  (DAP_ID="DAP 2")
+
+AI 必须提问: "SMC EX245 有两个接口版本，请选择：
+    [1] EX245-SPN FX (DAP 1)
+    [2] EX245-SPN Cu (DAP 2)"
+```
+
+> `DAP_ID` 是 `config add-device --data` 的必填字段。多 DAP 时不可自动选第一个，必须由用户确认。
+
+### Step 3.3: 模块选择（无预装模块设备）
+
+当目标 DAP 的全部 `UseableModules` **只有** `AllowedInSlots`（没有 `FixedInSlots` 或 `UsedInSlots`）时，说明该设备**没有任何预装模块**，需要由用户决定要安装哪些模块。
+
+```
+检测到无预装模块设备:
+  Device: TMGTE SUNKE SK335x (DAP: DAP 335X)
+  UseableModules (全部仅 AllowedInSlots):
+    [1] IN_MODULE  — AllowedInSlots: 1..64
+    [2] OUT_MODULE — AllowedInSlots: 1..64
+
+AI 必须提问: "TMGTE SUNKE 没有预装模块。以下是可用模块：
+    [1] IN_MODULE (输入模块, 可安装到 slot 1-64)
+    [2] OUT_MODULE (输出模块, 可安装到 slot 1-64)
+    请选择要添加的模块（可多选，如 '1,2' 或 'all'）"
+```
+
+选中的模块追加到 `ChangePlan.changes[]` 中作为 `config add-module` 条目，在 Phase 5-6 中按顺序执行（先 add-device 再 add-module）。
+
+> **判断公式**：DAP 无预装模块 ⇔ `UseableModules[].FixedInSlots` 全部为空且 `UseableModules[].UsedInSlots` 全部为空。
+> 如果至少一个模块有 `FixedInSlots` 或 `UsedInSlots`，则该 DAP 有预装模块，无需 Step 3.3。
 
 ### 设备匹配优先级
 
@@ -218,15 +308,23 @@ DiscoveredDevices:
 
 ```json
 {
-  "summary": "添加 1 个 OBARA SIV31-40 焊机, IP 192.168.2.20, 名称 heron-weld-2",
+  "summary": "添加 1 个 OBARA SIV31-40 焊机 (DAP=SIV31 Std), IP 192.168.2.20, 名称 heron-weld-2",
   "changes": [
     {
       "command": "config-add-device",
       "risk": "write",
-      "payload": {"DeviceName": "heron-weld-2", "IPAddress": "192.168.2.20"},
+      "payload": {"RefGSD": "GSDML-V2.31-OBARA-SIV31-40-20190707.xml", "DAP_ID": "DAP"},
       "requires_backup": false,
       "online_status": "offline",
-      "rollback": "config-remove-device --data '{\"DeviceName\":\"heron-weld-2\"}'"
+      "rollback": "config-remove-device --data '{\"SetPNDeviceNum\":1}'"
+    },
+    {
+      "command": "config-add-module",
+      "risk": "write",
+      "payload": {"SetPNDeviceNum": 1, "ModuleID": "ID_MOD_DX1"},
+      "requires_backup": false,
+      "online_status": "offline",
+      "depends_on": "config-add-device"
     }
   ],
   "conflicts_detected": [],
@@ -238,7 +336,7 @@ DiscoveredDevices:
 
 ## Phase 4-7：配置写入与编译
 
-按 `ChangePlan.changes` 的顺序逐一执行：
+按 `ChangePlan.changes` 的顺序逐一执行。**注意依赖顺序**：`config add-device` 必须先于 `config add-module`（设备必须先存在才能添加模块）。
 
 ```
 Phase 4 写入确认 ──→ inl --target <IP> config <subcommand> --data '<json>' --dry-run
@@ -249,6 +347,21 @@ Phase 7 DCP 分配 ──→ 参见 inl-workflow-profinet-dcp（仅在线设备�
 
 > `<subcommand>` 取自 `ChangePlan.changes[].command`（如 `add-device`、`set-device`、`remove-device`），`<json>` 取自 `changes[].payload`。
 
+### Windows/PowerShell 注意事项
+
+在 PowerShell 下构造 `--data` JSON 时，**必须**使用 `--stdin` 管道直传，禁止文件 I/O：
+
+```powershell
+# ✅ 正确：管道直传（零文件 I/O，不触发 Agent 安全检查）
+'{"RefGSD":"GSDML-...-SMC-EX245-...xml","DAP_ID":"0x00000010"}' |
+    inl --target 192.168.3.15 config add-device --stdin --yes
+
+# ❌ 错误：写文件（Out-File 触发 Agent 安全检查）
+# ❌ 错误：直接在命令行写 JSON（PowerShell 剥离引号）
+```
+
+详见 [inl-shared §1.5](../inl-shared/SKILL.md#15-windowspowershell-json-传参指南)。
+
 ---
 
 ## Phase 8：验证交付
@@ -258,8 +371,8 @@ Phase 7 DCP 分配 ──→ 参见 inl-workflow-profinet-dcp（仅在线设备�
 ### 执行命令
 
 ```bash
-inl --target <IP> device list-active    # 激活中拓扑
-inl --target <IP> device list           # 配置中拓扑 (对比基准)
+inl --target <IP> device list-active --output $env:TEMP\verified_active.json    # 激活中拓扑
+inl --target <IP> device list --output $env:TEMP\verified_config.json           # 配置中拓扑 (对比基准)
 ```
 
 ### 对比校验项
@@ -313,13 +426,14 @@ AI Agent 在整个工作流中维护 `session_context`:
 ## 状态机
 
 ```
-INIT → ASSESSING → DISCOVERING → CLARIFYING → PLANNING → REVIEWING → WRITING
+INIT → SCHEMA → ASSESSING → DISCOVERING → CLARIFYING → PLANNING → REVIEWING → WRITING
   → COMPILING → DCP_ASSIGNING → VERIFYING → COMPLETE
                                → FAILED
 ```
 
 | 状态 | 操作 | 退出条件 |
 |------|------|---------|
+| `SCHEMA` | `inl schema list` → 获取所有命令 fields 元数据 | schema list 成功 |
 | `ASSESSING` | gsd list + device list* + device run + 语义富化 + 反向评估 | 全部完成 |
 | `DISCOVERING` | interface list + topology scan + gsd match | 完成或超时 (部分离线正常) |
 | `CLARIFYING` | 逐条确认模糊意图 (每次 ≤2 个问题) | 全部澄清 |
@@ -355,11 +469,12 @@ INIT → ASSESSING → DISCOVERING → CLARIFYING → PLANNING → REVIEWING →
 - ❌ 盲配完成后报告"设备已验证通过"——必须标注 "⚠️ 设备未实际验证"
 - ❌ 用 `device run` 的 Status 判断是否应该配置
 - ❌ **臆想设备/模块/子模块 ID** — `config add-device` 的 `DAP_ID`、`config add-module` 的 `ModuleID`、`config add-submodule` 的 `SubmoduleID` **必须**从 `gsd list` 返回的实际值中提取，**严禁**自编（如 `"0x0001"`）
+- ❌ **多 DAP 设备自动选第一个** — `DAP[].length > 1` 时必须让用户选择，不可自行决定
+- ❌ **无预装模块设备跳过模块选择** — `UseableModules[]` 全为 `AllowedInSlots` 时必须让用户确认要安装哪些模块
 
 ---
 
-## 参考
+## 相关 Skill
 
-- [inl-shared/SKILL.md](../inl-shared/SKILL.md) — 共享规则 (必读)
-- [inl-workflow-profinet-dcp/SKILL.md](../inl-workflow-profinet-dcp/SKILL.md) — DCP 写操作独立工作流 (Phase 7)
-- [inl-workflow-design.md](../../docs/inl-workflow-design.md) — 工作流设计文档 (完整规范)
+- [inl-shared](../inl-shared/SKILL.md) — 共享规则 (必读)
+- [inl-workflow-profinet-dcp](../inl-workflow-profinet-dcp/SKILL.md) — DCP 写操作独立工作流 (Phase 7)

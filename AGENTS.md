@@ -1,5 +1,7 @@
 # AGENTS.md
 
+> **Monorepo context**: This is one of three projects in `feishu_cli/`. See [`../AGENTS.md`](../AGENTS.md) for the monorepo map. Pair projects: [`../cli/`](../cli/) (Lark/Feishu CLI), [`../io-controller/`](../io-controller/) (nrc2.out firmware this CLI talks to over TCP:6000).
+
 ## Project
 
 `inl` 是面向 AI Agent 的无头工业以太网 CLI 工具。通过 TCP:6000 与运行 `nrc2.out` 的工业 PC 通信，基于 **Cobra 命令树** + `internal/nrc/commands.go` 的 25 条 Registry 实现 PROFINET GSD、拓扑、DCP 设备发现与参数分配。

@@ -14,6 +14,18 @@ metadata:
 
 ---
 
+## Phase 0：Schema 发现（强制）
+
+接到的**任何** DCP 写任务时，第一条命令必须是：
+
+```bash
+inl schema list
+```
+
+目的：获取 `device-setup-name` / `device-setup-ip` / `topology-scan` 的精确参数名和必填标记，避免凭记忆拼凑 flag 名。
+
+---
+
 ## 适用场景
 
 AI Agent 收到下列**不涉及完整配网编排**的 DCP 写任务时，可独立触发本 Skill：
@@ -42,9 +54,9 @@ AI Agent 收到下列**不涉及完整配网编排**的 DCP 写任务时，可�
 
 | # | 步骤 | 命令 | 说明 |
 |:--:|------|------|------|
-| 1 | 预检 | `inl --target <IP> topology scan --interface <port>` | 通过 DCP 扫描实际网络，确认目标设备 MAC 存在，新名称/IP 未被其他设备占用 |
+| 1 | 预检 | `inl --target <IP> topology scan --interface <port> --output $env:TEMP\scan.json` | 通过 DCP 扫描实际网络，确认目标设备 MAC 存在，新名称/IP 未被其他设备占用。用 Read 工具读取 JSON。 |
 | 2 | 执行 | `inl --target <IP> device setup-name --interface <port> --mac <MAC> --name <new_name> --yes` 或 `inl --target <IP> device setup-ip --interface <port> --mac <MAC> --ip <new_ip> --mask <subnet_mask> --yes` | 修改设备名称或 IP。`--yes` 由 AI 自动追加。 |
-| 3 | 验证 | `sleep(5)` → `inl --target <IP> topology scan --interface <port>` | DCP 写操作**无 JSON 响应**，`topology scan` 是唯一确认手段。比对 scan 结果中目标设备的 DeviceName / IPAddress / SubnetMask 字段与预期一致。 |
+| 3 | 验证 | `sleep(5)` → `inl --target <IP> topology scan --interface <port> --output $env:TEMP\scan_verify.json` | DCP 写操作**无 JSON 响应**，`topology scan` 是唯一确认手段。用 Read 工具读取后比对 DeviceName / IPAddress / SubnetMask。
 
 ### 注意事项
 
@@ -56,8 +68,6 @@ AI Agent 收到下列**不涉及完整配网编排**的 DCP 写任务时，可�
 
 ---
 
-## 参考
+## 相关 Skill
 
-- [`../inl-shared/SKILL.md`](../inl-shared/SKILL.md) — 共享规则（`--target` / `--yes` / Risk / 结构化错误码）
-- [`../../inl/AGENTS.md`](../../inl/AGENTS.md) — inl 客户端权威开发文档
-- [`../../inl/docs/inl-workflow-design.md`](../../inl/docs/inl-workflow-design.md) — 完整配网工作流设计（本 skill 为其中 Phase 7.3 的独立子集）
+- [inl-shared](../inl-shared/SKILL.md) — 共享规则（`--target` / `--yes` / Risk / 结构化错误码）
