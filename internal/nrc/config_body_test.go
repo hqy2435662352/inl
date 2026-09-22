@@ -376,7 +376,7 @@ func TestConfigRemoveDeviceBody_Valid(t *testing.T) {
 func TestConfigSetDeviceBody_Valid(t *testing.T) {
 	spec := CommandSpec{DataType: 12, Function: "SetPNDevice"}
 	got, err := configSetDeviceBody(spec, map[string]string{
-		"data":     `{"SetPNDeviceNum":1}`,
+		"data":     `{"SetPNDeviceNum":1,"DeviceName":"ex245","IPAddress":"192.168.2.1","SubnetMask":"255.255.255.0","ReductionRatio":16,"SetInTheProject":true}`,
 		"no-fetch": "true",
 	})
 	if err != nil {
@@ -389,7 +389,7 @@ func TestConfigSetDeviceBody_Valid(t *testing.T) {
 
 func TestConfigSetDeviceBody_ZeroIndex(t *testing.T) {
 	spec := CommandSpec{DataType: 12, Function: "SetPNDevice"}
-	_, err := configSetDeviceBody(spec, map[string]string{"data": `{"SetPNDeviceNum":0}`})
+	_, err := configSetDeviceBody(spec, map[string]string{"data": `{"SetPNDeviceNum":0,"DeviceName":"ex245","IPAddress":"192.168.2.1","SubnetMask":"255.255.255.0","ReductionRatio":16,"SetInTheProject":true}`})
 	if err == nil {
 		t.Error("SetPNDeviceNum=0 应触发 1-based 校验错误, got nil")
 	}

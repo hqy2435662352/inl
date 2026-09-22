@@ -345,7 +345,7 @@ var configRequiredFields = map[string][]string{
 	"SetPNDriver":        {"DeviceName", "IPAddress", "SubnetMask", "SetInTheProject"},
 	"AddPNDevice":        {"RefGSD", "DAP_ID"},
 	"UninstallPNDevice":  {"SetPNDeviceNum"},
-	"SetPNDevice":        {"SetPNDeviceNum"},
+	"SetPNDevice":        {"SetPNDeviceNum", "DeviceName", "IPAddress", "SubnetMask", "ReductionRatio", "SetInTheProject"},
 	"AddModule":          {"SetPNDeviceNum", "ModuleID"},
 	"UninstallModule":    {"SetPNDeviceNum", "SetModuleSlot"},
 	"AddSubmodule":       {"SetPNDeviceNum", "ModuleID", "SubmoduleID"},
