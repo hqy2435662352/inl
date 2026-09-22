@@ -4,6 +4,7 @@ inl.exe
 # IDE
 .vscode/
 .idea/
+.trae/
 
 # OS
 .DS_Store
@@ -13,6 +14,7 @@ Thumbs.db
 *_response_*.json
 *.log
 gsd_out*.json
+gsd_list.json
 topo_out.json
 
 # 开发期调试残留 (Step 8-10 期间)
