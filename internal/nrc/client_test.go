@@ -79,15 +79,14 @@ func TestConnect_RetryOnRefused(t *testing.T) {
 	if err == nil {
 		t.Fatal("期望 connect 失败")
 	}
-	// 3 次尝试, 中间 2 次 sleep (300ms + ~150ms jitter, 600ms + ~300ms jitter)
-	// 总耗时至少 = 300 + 600 - jitter = 900ms
-	// 加上 3 次 dial 每次 5s 超时上限, 但实际 dial 立即失败 (connection refused)
-	// 所以 elapsed 应在 [0.9s, 2.0s] 之间
+	// 3 次重试, 中间 3 次 sleep (300ms + jitter, 600ms + jitter, 1200ms + jitter)
+	// 总 sleep 至少 = 300+600+1200 = 2100ms
+	// 加上 jitter 和 3 次 dial (立即失败), elapsed 应在 [2.1s, 4s] 之间
 	if elapsed < 800*time.Millisecond {
 		t.Errorf("elapsed = %v, 期望 >= 800ms (重试 sleep 累积)", elapsed)
 	}
-	if elapsed > 3*time.Second {
-		t.Errorf("elapsed = %v, 期望 < 3s", elapsed)
+	if elapsed > 4*time.Second {
+		t.Errorf("elapsed = %v, 期望 < 4s", elapsed)
 	}
 	if !strings.Contains(err.Error(), "dial") {
 		t.Errorf("错误信息应含 'dial': %v", err)
@@ -375,14 +374,14 @@ func TestSendReceiveFiltered_NoRetryOnProtocolErr(t *testing.T) {
 
 // === Step 9.2 WithReceivePolicy 注入测试 ===
 
-// TestSendReceiveFiltered_DefaultReceivePolicy 验证默认 DCP 1 次重试。
+// TestSendReceiveFiltered_DefaultReceivePolicy 验证默认 DCP 5 次重试。
 func TestSendReceiveFiltered_DefaultReceivePolicy(t *testing.T) {
 	c := NewClient("127.0.0.1:6000")
 	if c.receivePolicy == nil {
 		t.Fatal("默认 receivePolicy 不应为 nil")
 	}
-	if c.receivePolicy.MaxRetries != 1 {
-		t.Errorf("默认 receivePolicy.MaxRetries = %d, want 1", c.receivePolicy.MaxRetries)
+	if c.receivePolicy.MaxRetries != 5 {
+		t.Errorf("默认 receivePolicy.MaxRetries = %d, want 5", c.receivePolicy.MaxRetries)
 	}
 	if !c.receivePolicy.ShouldRetry(errors.New("timeout")) {
 		t.Error("默认 receivePolicy.ShouldRetry 应触发 timeout")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net"
 	"time"
 
@@ -62,18 +63,24 @@ func NewClient(addr string, opts ...ClientOption) *Client {
 //
 // 行为契约: DCP 是广播, 重发无害; sendReceiveOnce 的所有错误都是网络层错误
 // (连接未建立 / 写帧失败 / 读超时 / 读 EOF), 重连+重发大概率能成功。
+//
+// 2026-06-12: MaxRetries 从 2 提升到 5, BaseBackoff 从 500ms 提到 1s, MaxBackoff 从 2s 提到 5s。
+// DCP 回调 (PerformOnlineAccess→DiscoverNetworkDevices) 中有 2s 的 sleep_for(2000),
+// NRC 框架在回调返回后发响应和关连接之间存在竞态条件。增大退避窗口 + 更多重试
+// 让服务端有更充裕的时间完成 DCP 扫描→响应发送→连接关闭的完整流程。
 func defaultReceivePolicy() *reliability.Policy {
-	return NewReceivePolicy(1)
+	return NewReceivePolicy(5)
 }
 
 // NewReceivePolicy 构造指定重试次数的 DCP receive policy (供 main.go 的 --retry flag 使用)。
 //
-// 与 defaultReceivePolicy 行为一致, 仅 MaxRetries 不同。
+// 与 defaultReceivePolicy (MaxRetries=5, BaseBackoff=1s, MaxBackoff=5s) 一致,
+// 仅 MaxRetries 由调用方指定。
 func NewReceivePolicy(maxRetries int) *reliability.Policy {
 	return &reliability.Policy{
 		MaxRetries:  maxRetries,
-		BaseBackoff: 200 * time.Millisecond,
-		MaxBackoff:  1 * time.Second,
+		BaseBackoff: 1 * time.Second,
+		MaxBackoff:  5 * time.Second,
 		ShouldRetry: func(err error) bool { return err != nil },
 	}
 }
@@ -90,6 +97,10 @@ func defaultConnectPolicy() *reliability.Policy {
 		MaxRetries:  3,
 		BaseBackoff: 300 * time.Millisecond,
 		MaxBackoff:  3 * time.Second,
+		// 显式 jitter 100-200ms: 多 AI Agent 并发或端口竞争场景下，打散重试窗口避免同步碰撞
+		Jitter: func() time.Duration {
+			return time.Duration(100+rand.Intn(100)) * time.Millisecond
+		},
 		ShouldRetry: func(err error) bool { return err != nil },
 	}
 }
