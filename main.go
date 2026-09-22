@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -50,19 +52,30 @@ func main() {
 		Long: `inl — Industrial Netline CLI
 
 通过 TCP:6000 与运行 nrc2.out 的工业 PC 通信, 收发 NRC 帧,
-实现 PROFINET GSD 设备列表、设备读取、配置写等功能。`,
+实现 PROFINET GSD 设备列表、设备读取、配置写等功能。
+
+快速上手:
+  inl schema list               AI 自发现所有命令及参数
+  inl --target <IP> gsd list    读取设备驱动库
+  inl --target <IP> config <sub> --stdin --yes   管道传 JSON 写配置
+
+写命令 (write/high-risk-write) 需 --yes 确认; 可先用 --dry-run 预览。
+JSON 传参推荐 --stdin 管道或 --data-file 文件, 详见 inl config <cmd> --help。`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+
+	// 禁用 Cobra 自动生成的 shell completion 命令 (工业现场不需要)
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
 	rootCmd.PersistentFlags().StringVar(&targetFlag, "target", "",
 		"工业 PC IP 地址 (必填)")
 	rootCmd.PersistentFlags().StringVar(&formatFlag, "format", "json",
 		"输出格式: json (默认) | table | csv | ndjson")
 	rootCmd.PersistentFlags().StringVar(&outputFlag, "output", "",
-		"原始响应保存路径 (默认: ./<name>_response_<时间戳>.json)")
+		"原始响应保存路径 (仅显式指定时才保存)")
 	rootCmd.PersistentFlags().IntVar(&retryFlag, "retry", 0,
-		"DCP 命令重试次数 (0=默认 1 次; 网络抖动场景可设 3-5)")
+		"DCP 命令重试次数 (0=默认 5 次; 网络抖动场景可设 8-10)")
 
 	for _, g := range []nrc.CommandGroup{
 		nrc.GroupInterface, nrc.GroupGsd, nrc.GroupDevice, nrc.GroupConfig, nrc.GroupTopology, nrc.GroupSchema, nrc.GroupRaw,
@@ -208,6 +221,13 @@ func buildSubCmd(spec nrc.CommandSpec) *cobra.Command {
 			subCmd.Flags().String("mask", "", "新子网掩码")
 		case "data":
 			subCmd.Flags().String("data", "", "完整 JSON payload (config-* 与 raw-send 必填)")
+			subCmd.Flags().String("data-file", "",
+				"从文件读取 JSON payload（与 --data 互斥，绕过 PowerShell 引号转义）")
+			subCmd.Flags().Bool("stdin", false,
+				"从 stdin 管道读取 JSON payload（零文件 I/O，推荐 PowerShell 下使用）")
+			// 不在此处 MarkFlagRequired("data") — 因为 --data-file / --stdin 也是合法的替代方式。
+			// 必填校验在 runNrcCommand 中手动完成，支持 --data / --data-file / --stdin 任一提供。
+			continue
 		}
 		if arg.Required {
 			_ = subCmd.MarkFlagRequired(arg.Name)
@@ -219,12 +239,12 @@ func buildSubCmd(spec nrc.CommandSpec) *cobra.Command {
 
 // buildNRCClient 根据 retryFlag 构造 nrc.Client。
 //
-// retryFlag == 0 (默认): 使用 nrc.NewClient 的默认策略 (DCP 1 次重试)
+// retryFlag == 0 (默认): 使用 nrc.NewClient 的默认策略 (DCP 5 次重试, 退避 1s→2s→4s→5s→5s, 上限 5s)
 // retryFlag > 0: 用 nrc.NewReceivePolicy(retryFlag) 覆盖默认 receive policy
 //
 //	(Step 9.2 --retry flag)
 //	- retryFlag=3 表示总共尝试 4 次 (1 次 + 3 次重试)
-//	- 网络抖动场景下推荐 3-5 次
+//	- 网络抖动场景下推荐 8-10 次
 func buildNRCClient(addr string) *nrc.Client {
 	if retryFlag > 0 {
 		return nrc.NewClient(addr, nrc.WithReceivePolicy(nrc.NewReceivePolicy(retryFlag)))
@@ -239,6 +259,7 @@ func buildNRCClient(addr string) *nrc.Client {
 // raw-send 命令使用 "data" 参数 (非 DCP), 也由本函数一并提取 (其他 DCP 命令不会注册 data flag, 自动跳过)。
 // config-* 写命令 (Step 10.A) 使用 "data" 参数; --no-fetch 标志映射为 args["no-fetch"]="true" 字符串。
 // --target 持久标志映射为 args["target"], 供 BodyBuilder 自动 fetch 使用。
+// --stdin 标志: 从 os.Stdin 读取 JSON（零文件 I/O，避免 Agent 文件写入安全检查）。
 func collectDCPArgs(cmd *cobra.Command) map[string]string {
 	args := make(map[string]string)
 	// --target 持久标志 (在 rootCmd 上注册, 通过 PersistentFlags 也能从 subCmd 取到)
@@ -255,6 +276,21 @@ func collectDCPArgs(cmd *cobra.Command) map[string]string {
 		}
 		if v, _ := cmd.Flags().GetString(name); v != "" {
 			args[name] = v
+		}
+	}
+	// --data-file: 从文件读取 JSON（与 --data 互斥，绕过 PowerShell 引号转义）
+	if cmd.Flags().Lookup("data-file") != nil {
+		if v, _ := cmd.Flags().GetString("data-file"); v != "" {
+			args["data"] = "@" + v // 通过 @file 语法交给 BodyBuilder 处理
+		}
+	}
+	// --stdin: 从管道读取 JSON（零文件 I/O，避免 Agent 文件写入安全检查）
+	if cmd.Flags().Lookup("stdin") != nil {
+		if v, _ := cmd.Flags().GetBool("stdin"); v {
+			stdinBytes, err := io.ReadAll(cmd.InOrStdin())
+			if err == nil && len(stdinBytes) > 0 {
+				args["data"] = strings.TrimSpace(string(stdinBytes))
+			}
 		}
 	}
 	return args
@@ -293,10 +329,26 @@ func runNrcCommand(name string) func(*cobra.Command, []string) error {
 			}
 		}
 
+		// 对需要 --data 的命令，校验 --data 或 --data-file 或 --stdin 至少提供一个。
+		// 替代 Cobra 的 MarkFlagRequired("data")，因为 --data-file / --stdin 也是合法输入方式。
+		//
+		// 注意: collectDCPArgs 会消费 stdin（如果使用 --stdin），所以必须只调用一次并缓存结果。
+		cachedArgs := collectDCPArgs(cmd)
+		if hasDataArg(spec) {
+			if cachedArgs["data"] == "" {
+				return &output.Error{
+					Type:    "validation",
+					Code:    "missing_data",
+					Message: "--data 或 --data-file 或 --stdin 必须提供",
+					Hint:    "用 --data '{\"key\":\"val\"}' 或 --data-file payload.json 传入 JSON 参数",
+				}
+			}
+		}
+
 		if spec.Risk != nrc.RiskRead {
 			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			if dryRun {
-				body, err := nrc.RequestBody(spec, collectDCPArgs(cmd))
+				body, err := nrc.RequestBody(spec, cachedArgs)
 				if err != nil {
 					return fmt.Errorf("构造请求体失败: %w", err)
 				}
@@ -341,7 +393,7 @@ func runNrcCommand(name string) func(*cobra.Command, []string) error {
 			nrc.PreFetchTopology(client)
 		}
 
-		body, err := nrc.RequestBody(spec, collectDCPArgs(cmd))
+		body, err := nrc.RequestBody(spec, cachedArgs)
 		if err != nil {
 			return fmt.Errorf("构造请求体失败: %w", err)
 		}
@@ -386,19 +438,24 @@ func runNrcCommand(name string) func(*cobra.Command, []string) error {
 			}
 		}
 
+		// 仅当 --output 显式指定时才保存原始响应到文件
 		outPath := outputFlag
-		if outPath == "" {
-			outPath = fmt.Sprintf("%s_response_%s.json",
-				spec.Name, time.Now().Format("20060102_150405"))
-		}
-		if !filepath.IsAbs(outPath) {
-			wd, _ := os.Getwd()
-			outPath = filepath.Join(wd, outPath)
-		}
-		if err := os.WriteFile(outPath, data, 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "⚠️  保存原始响应失败: %v\n", err)
-		} else {
-			fmt.Fprintf(os.Stderr, "💾 原始响应已保存: %s\n", outPath)
+		if outPath != "" {
+			if !filepath.IsAbs(outPath) {
+				wd, _ := os.Getwd()
+				outPath = filepath.Join(wd, outPath)
+			}
+			// 美化 JSON 输出: 控制器返回的是 compact 单行 JSON, 20KB+ 挤在一行会导致
+			// AI 的 Grep/Read 工具难以定位字段。json.Indent 增加换行和缩进, 不影响语义。
+			prettyData := data
+			if indented, err := indentJSON(data); err == nil {
+				prettyData = indented
+			}
+			if err := os.WriteFile(outPath, prettyData, 0644); err != nil {
+				fmt.Fprintf(os.Stderr, "⚠️  保存原始响应失败: %v\n", err)
+			} else {
+				fmt.Fprintf(os.Stderr, "💾 原始响应已保存: %s\n", outPath)
+			}
 		}
 
 		notice := map[string]interface{}{
@@ -454,6 +511,26 @@ func runNrcCommand(name string) func(*cobra.Command, []string) error {
 		}
 		return nil
 	}
+}
+
+// hasDataArg 判断 spec 是否需要 --data / --data-file 参数。
+func hasDataArg(spec nrc.CommandSpec) bool {
+	for _, a := range spec.Args {
+		if a.Name == "data" {
+			return true
+		}
+	}
+	return false
+}
+
+// indentJSON 对 compact JSON 做美化 (缩进 + 换行)。
+// 失败时返回原数据和 error, 调用方应回退使用原始 compact JSON。
+func indentJSON(data []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, data, "", "  "); err != nil {
+		return data, err
+	}
+	return buf.Bytes(), nil
 }
 
 func installRiskHelpFunc(root *cobra.Command) {

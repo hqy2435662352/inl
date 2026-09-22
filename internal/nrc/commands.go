@@ -5,8 +5,11 @@
 package nrc
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 )
 
 // Direction 区分命令是请求侧还是响应侧（用于扩展性）。
@@ -665,19 +668,44 @@ func deviceSetupIPBody(spec CommandSpec, args map[string]string) (string, error)
 		port, mac, ip, mask), nil
 }
 
+// ResolveDataArg 解析 --data 或 --data-file 的最终 JSON 字符串。
+//
+// 若 raw 以 "@" 开头, 则视为文件路径, 读取文件内容返回。
+// 自动去除 UTF-8 BOM (PowerShell 的 Out-File -Encoding utf8 会在文件头写入 BOM)。
+// 否则原样返回。调用方应随后校验 JSON 合法性。
+func ResolveDataArg(raw string) (string, error) {
+	if strings.HasPrefix(raw, "@") {
+		filePath := raw[1:]
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			return "", fmt.Errorf("读取 --data 文件 %q 失败: %w", filePath, err)
+		}
+		// 去除 UTF-8 BOM (EF BB BF): PowerShell Out-File -Encoding utf8 默认写入 BOM,
+		// 导致 json.Valid 认为文件不以合法 JSON 开头
+		content = bytes.TrimPrefix(content, []byte{0xEF, 0xBB, 0xBF})
+		return string(content), nil
+	}
+	return raw, nil
+}
+
 // === raw-send 专用 BodyBuilder ===
 //
 // rawSendBody 透传用户提供的 --data 字符串作为 NRC 帧 payload, 不做任何字段包装。
+// 支持 @file 语法: --data @path/to/payload.json 从文件读取。
 // 校验: 必须非空 + 必须是合法 JSON (避免 typo 导致 C++ 端解析失败)。
 func rawSendBody(spec CommandSpec, args map[string]string) (string, error) {
 	data := args["data"]
 	if data == "" {
 		return "", fmt.Errorf("--data 不能为空")
 	}
-	if !json.Valid([]byte(data)) {
+	resolved, err := ResolveDataArg(data)
+	if err != nil {
+		return "", err
+	}
+	if !json.Valid([]byte(resolved)) {
 		return "", fmt.Errorf("--data 不是合法 JSON")
 	}
-	return data, nil
+	return resolved, nil
 }
 
 // === config-set-idevice 专用 BodyBuilder (Step 9.1, Step 10.A 增强) ===

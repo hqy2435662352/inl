@@ -98,16 +98,22 @@ func ClearPreFetchedTopology() {
 // 完整的字段校验逻辑在每个具体 BodyBuilder (configSetDriverBody 等) 中实现。
 // 通用辅助主要处理 JSON 解析 + fetch + 通用布局, 让每个具体函数只关心差异。
 func configBodyBuilder(spec CommandSpec, args map[string]string) (string, error) {
-	// 步骤 1: 解析 --data
+	// 步骤 1: 解析 --data, 支持 @file 语法
 	data := args["data"]
 	if data == "" {
 		return "", fmt.Errorf("--data 不能为空")
 	}
-	if !json.Valid([]byte(data)) {
+
+	resolved, err := ResolveDataArg(data)
+	if err != nil {
+		return "", err
+	}
+
+	if !json.Valid([]byte(resolved)) {
 		return "", fmt.Errorf("--data 不是合法 JSON")
 	}
 	var business map[string]any
-	if err := json.Unmarshal([]byte(data), &business); err != nil {
+	if err := json.Unmarshal([]byte(resolved), &business); err != nil {
 		return "", fmt.Errorf("--data 解析失败: %w", err)
 	}
 
